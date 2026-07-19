@@ -122,21 +122,26 @@ export function composeOps(a, b) {
   return out;
 }
 
-// Validate and normalize ops coming from a client. Returns null when invalid.
-export function sanitizeOps(ops, maxLen) {
+// Validate and normalize ops coming from a client. Ops in the list apply
+// sequentially, so positions are checked against the evolving text length.
+// Returns null when invalid.
+export function sanitizeOps(ops, textLen) {
   if (!Array.isArray(ops) || ops.length === 0 || ops.length > 512) return null;
+  let cur = textLen;
   let inserted = 0;
   const out = [];
   for (const op of ops) {
     if (op.t === "ins") {
       if (typeof op.s !== "string" || op.s.length === 0) return null;
+      if (!Number.isInteger(op.p) || op.p < 0 || op.p > cur) return null;
       inserted += op.s.length;
       if (inserted > 100000) return null;
-      if (!Number.isInteger(op.p) || op.p < 0 || op.p > maxLen) return null;
+      cur += op.s.length;
       out.push({ t: "ins", p: op.p, s: op.s });
     } else if (op.t === "del") {
-      if (!Number.isInteger(op.p) || op.p < 0 || op.p > maxLen) return null;
-      if (!Number.isInteger(op.l) || op.l <= 0 || op.l > maxLen) return null;
+      if (!Number.isInteger(op.p) || op.p < 0) return null;
+      if (!Number.isInteger(op.l) || op.l <= 0 || op.p + op.l > cur) return null;
+      cur -= op.l;
       out.push({ t: "del", p: op.p, l: op.l });
     } else {
       return null;

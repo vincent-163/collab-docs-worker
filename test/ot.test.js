@@ -114,3 +114,14 @@ test("sanitizeOps rejects malformed input", () => {
   assert.equal(sanitizeOps([{ t: "wat", p: 0 }], 10), null);
   assert.equal(sanitizeOps("nope", 10), null);
 });
+
+test("sanitizeOps validates sequential op lists against evolving length", () => {
+  // 100 sequential single-char inserts into an empty doc are valid
+  const burst = Array.from({ length: 100 }, (_, i) => ({ t: "ins", p: i, s: "x" }));
+  assert.equal(sanitizeOps(burst, 0).length, 100);
+  // delete + insert replacement pair
+  assert.equal(sanitizeOps([{ t: "del", p: 0, l: 5 }, { t: "ins", p: 0, s: "hi" }], 5).length, 2);
+  // delete beyond the evolving length is rejected
+  assert.equal(sanitizeOps([{ t: "del", p: 0, l: 3 }, { t: "del", p: 0, l: 3 }], 5), null);
+  assert.equal(sanitizeOps([{ t: "ins", p: 6, s: "x" }], 5), null);
+});

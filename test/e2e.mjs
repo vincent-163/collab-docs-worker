@@ -17,6 +17,45 @@ function applyOps(text, ops) {
   return text;
 }
 
+// Minimal mirror of the browser client's OT transform (history wins ties).
+function transformOp(x, y, yPriority) {
+  if (y.t === "ins") {
+    if (x.t === "ins") {
+      if (y.p < x.p || (y.p === x.p && yPriority)) return { t: "ins", p: x.p + y.s.length, s: x.s };
+      return x;
+    }
+    if (y.p <= x.p) return { t: "del", p: x.p + y.s.length, l: x.l };
+    if (y.p < x.p + x.l) return { t: "del", p: x.p, l: x.l + y.s.length };
+    return x;
+  }
+  const yEnd = y.p + y.l;
+  if (x.t === "ins") {
+    if (x.p > y.p) return { t: "ins", p: x.p - Math.min(y.l, x.p - y.p), s: x.s };
+    return x;
+  }
+  const xEnd = x.p + x.l;
+  if (yEnd <= x.p) return { t: "del", p: x.p - y.l, l: x.l };
+  if (xEnd <= y.p) return x;
+  const before = Math.max(0, Math.min(xEnd, y.p) - x.p);
+  const after = Math.max(0, xEnd - Math.max(yEnd, x.p));
+  return before + after === 0 ? null : { t: "del", p: Math.min(x.p, y.p), l: before + after };
+}
+
+function transformOps(ops, history, historyPriority = true) {
+  let out = ops;
+  for (const h of history) {
+    const next = [];
+    let against = h;
+    for (const op of out) {
+      const moved = transformOp(op, against, historyPriority);
+      against = transformOp(against, op, !historyPriority) || against;
+      if (moved) next.push(moved);
+    }
+    out = next;
+  }
+  return out;
+}
+
 const res = await fetch(`${BASE}/api/v1/documents`, {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -50,7 +89,14 @@ function client(name) {
   const c = {
     name, ws,
     text: null, rev: null, id: null,
+    pending: null, // { opId, ops } unacknowledged local op
+    opSeq: 0,
     messages: [],
+    sendOps(ops) {
+      c.pending = { opId: ++c.opSeq, ops };
+      c.text = applyOps(c.text, ops);
+      ws.send(JSON.stringify({ type: "op", opId: c.pending.opId, baseRev: c.rev, ops }));
+    },
     ready: new Promise((resolve, reject) => {
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
@@ -59,8 +105,17 @@ function client(name) {
           c.text = msg.text; c.rev = msg.rev; c.id = msg.you.id;
           resolve();
         } else if (msg.type === "op") {
-          if (!(msg.by && msg.by.id === c.id)) {
-            c.text = applyOps(c.text, msg.ops);
+          const isAck = msg.by && msg.by.id === c.id && c.pending && msg.opId === c.pending.opId;
+          if (isAck) {
+            c.pending = null;
+          } else {
+            let serverOps = msg.ops;
+            if (c.pending) {
+              const overPending = transformOps(serverOps, c.pending.ops, false);
+              c.pending.ops = transformOps(c.pending.ops, serverOps);
+              serverOps = overPending;
+            }
+            c.text = applyOps(c.text, serverOps);
           }
           c.rev = Math.max(c.rev, msg.rev);
         }
@@ -78,14 +133,13 @@ assert(a.text === "hello world" && b.text === "hello world", "both clients got i
 assert(a.id !== b.id, "clients have distinct ids");
 
 // A inserts at 0 based on rev 1
-a.ws.send(JSON.stringify({ type: "op", opId: 1, baseRev: 1, ops: [{ t: "ins", p: 0, s: "A:" }] }));
-a.text = applyOps(a.text, [{ t: "ins", p: 0, s: "A:" }]);
+a.sendOps([{ t: "ins", p: 0, s: "A:" }]);
 
 // B concurrently appends at end based on the same rev 1
-b.ws.send(JSON.stringify({ type: "op", opId: 1, baseRev: 1, ops: [{ t: "ins", p: 11, s: " :B" }] }));
-b.text = applyOps(b.text, [{ t: "ins", p: 11, s: " :B" }]);
+b.sendOps([{ t: "ins", p: 11, s: " :B" }]);
 
 await new Promise((r) => setTimeout(r, 1500));
+assert(a.pending === null && b.pending === null, "both ops acknowledged");
 
 const final = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
 console.log("server:", JSON.stringify(final.content), "rev", final.revision);
