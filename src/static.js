@@ -62,10 +62,20 @@ a { color: var(--primary); text-decoration: none; }
 .avatar { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; margin-left: -8px; cursor: default; }
 .avatar:first-child { margin-left: 0; }
 .avatar.me { outline: 2px solid var(--primary); outline-offset: 1px; }
+.doc-toolbar { position: sticky; top: 49px; z-index: 9; background: var(--card); border: none; border-bottom: 1px solid var(--border); display: flex; justify-content: center; flex-wrap: wrap; padding: 6px 12px; }
 .doc-wrap { flex: 1; padding: 26px 16px 60px; }
-.doc-page { background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px rgba(40, 60, 120, .07); max-width: 860px; margin: 0 auto; min-height: 76vh; display: flex; }
-.doc-page textarea { flex: 1; border: none; outline: none; resize: none; padding: 44px 52px; font-size: 15.5px; line-height: 1.85; font-family: inherit; background: transparent; color: var(--text); min-height: 76vh; }
-.doc-page textarea[readonly] { background: repeating-linear-gradient(0deg, #fff, #fff 36px, #fcfcfd 36px, #fcfcfd 72px); }
+.doc-page { background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px rgba(40, 60, 120, .07); max-width: 860px; margin: 0 auto; min-height: 76vh; }
+.doc-page .ql-container { border: none; font-size: 15.5px; font-family: inherit; }
+.doc-page .ql-editor { padding: 40px 52px; min-height: 76vh; line-height: 1.85; }
+.doc-page .ql-editor.ql-blank::before { color: #b6bfce; font-style: normal; }
+.doc-page .ql-editor table { border-collapse: collapse; margin: 12px 0; }
+.doc-page .ql-editor td, .doc-page .ql-editor th { border: 1px solid #ccd4e0; padding: 6px 12px; min-width: 60px; }
+.doc-page .ql-editor blockquote { border-left: 3px solid var(--primary); padding-left: 14px; color: var(--muted); margin: 8px 0; }
+.doc-page .ql-editor pre.ql-syntax { background: #f5f7fb; border: 1px solid var(--border); border-radius: 8px; color: #243447; }
+.ql-toolbar .ql-table-custom { width: 28px; font-size: 15px; color: #444; }
+.ql-toolbar .ql-table-custom:hover { color: var(--primary); }
+.ql-toolbar.ql-snow .ql-formats { margin-right: 10px; }
+.ql-snow .ql-picker.ql-header { width: 78px; }
 .metabar { display: flex; align-items: center; gap: 16px; max-width: 860px; margin: 10px auto 0; color: var(--muted); font-size: 12.5px; padding: 0 4px; }
 .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: #222b3a; color: #fff; padding: 10px 18px; border-radius: 9px; font-size: 13.5px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 99; }
 .toast.show { opacity: .95; }
@@ -79,16 +89,16 @@ a { color: var(--primary); text-decoration: none; }
 .rev-item:hover { background: #f5f8ff; }
 .rev-item .rev-no { font-weight: 700; color: var(--primary); width: 52px; }
 .rev-item .rev-author { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rev-item .rev-summary { color: var(--muted); width: 90px; }
-.rev-item .rev-time { color: var(--muted); margin-left: auto; }
+.rev-item .rev-summary { color: var(--muted); min-width: 90px; }
+.rev-item .rev-time { color: var(--muted); margin-left: auto; white-space: nowrap; }
 .modal .rev-view { display: none; flex-direction: column; min-height: 0; }
 .modal .rev-view pre { overflow: auto; padding: 18px 20px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .modal .rev-view .rev-actions { display: flex; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--border); }
-.empty-doc { color: #b6bfce; }
 @media (max-width: 640px) {
-  .doc-page textarea { padding: 24px 20px; }
-  .title-input { width: 140px; }
+  .doc-page .ql-editor { padding: 22px 18px; }
+  .title-input { width: 130px; }
   .create-card { flex-direction: column; }
+  .doc-toolbar { top: 0; position: static; }
 }
 `;
 
@@ -98,97 +108,35 @@ export const CLIENT_JS = `
   var cfg = window.COLLAB_CFG;
   var prefix = cfg.prefix;
   var docId = cfg.docId;
+  var Delta = Quill.import('delta');
 
-  /* ---------------- OT (mirror of server src/ot.js) ---------------- */
-  function applyOps(text, ops) {
-    for (var i = 0; i < ops.length; i++) {
-      var op = ops[i];
-      if (op.t === 'ins') text = text.slice(0, op.p) + op.s + text.slice(op.p);
-      else text = text.slice(0, op.p) + text.slice(op.p + op.l);
+  /* ---------------- editor setup ---------------- */
+  var quill = new Quill('#editor', {
+    theme: 'snow',
+    readOnly: true,
+    placeholder: '正在加载文档…',
+    modules: {
+      toolbar: {
+        container: '#toolbar',
+        handlers: {
+          'table-custom': function () {
+            var input = window.prompt('表格大小（行 x 列）', '3 x 3');
+            if (!input) return;
+            var m = input.match(/(\\d+)\\s*[xX×]\\s*(\\d+)/);
+            var rows = m ? Math.min(parseInt(m[1], 10), 20) : 3;
+            var cols = m ? Math.min(parseInt(m[2], 10), 10) : 3;
+            var table = quill.getModule('table');
+            if (table && table.insertTable) table.insertTable(rows, cols);
+            else toast('表格组件不可用');
+          }
+        }
+      },
+      table: true,
+      history: false
     }
-    return text;
-  }
-  function transformOp(x, y, yPriority) {
-    if (y.t === 'ins') {
-      if (x.t === 'ins') {
-        if (y.p < x.p || (y.p === x.p && yPriority)) return { t: 'ins', p: x.p + y.s.length, s: x.s };
-        return x;
-      }
-      if (y.p <= x.p) return { t: 'del', p: x.p + y.s.length, l: x.l };
-      if (y.p < x.p + x.l) return { t: 'del', p: x.p, l: x.l + y.s.length };
-      return x;
-    }
-    var yEnd = y.p + y.l;
-    if (x.t === 'ins') {
-      if (x.p > y.p) return { t: 'ins', p: x.p - Math.min(y.l, x.p - y.p), s: x.s };
-      return x;
-    }
-    var xEnd = x.p + x.l;
-    if (yEnd <= x.p) return { t: 'del', p: x.p - y.l, l: x.l };
-    if (xEnd <= y.p) return x;
-    var before = Math.max(0, Math.min(xEnd, y.p) - x.p);
-    var after = Math.max(0, xEnd - Math.max(yEnd, x.p));
-    var len = before + after;
-    if (len === 0) return null;
-    return { t: 'del', p: Math.min(x.p, y.p), l: len };
-  }
-  function transformOps(ops, history, historyPriority) {
-    if (historyPriority === undefined) historyPriority = true;
-    var out = ops;
-    for (var i = 0; i < history.length; i++) {
-      var next = [];
-      var against = history[i];
-      for (var j = 0; j < out.length; j++) {
-        var moved = transformOp(out[j], against, historyPriority);
-        var rest = transformOp(against, out[j], !historyPriority);
-        if (rest) against = rest;
-        if (moved) next.push(moved);
-      }
-      out = next;
-    }
-    return out;
-  }
-  function composeOps(a, b) {
-    var out = a.slice();
-    for (var i = 0; i < b.length; i++) {
-      var op = b[i];
-      var last = out[out.length - 1];
-      if (last && last.t === 'ins' && op.t === 'ins' && op.p === last.p + last.s.length) {
-        out[out.length - 1] = { t: 'ins', p: last.p, s: last.s + op.s };
-      } else if (last && last.t === 'del' && op.t === 'del' && (op.p === last.p || op.p + op.l === last.p)) {
-        out[out.length - 1] = { t: 'del', p: Math.min(last.p, op.p), l: last.l + op.l };
-      } else {
-        out.push(op);
-      }
-    }
-    return out;
-  }
-  function mapPosition(pos, ops) {
-    for (var i = 0; i < ops.length; i++) {
-      var op = ops[i];
-      if (op.t === 'ins') { if (op.p <= pos) pos += op.s.length; }
-      else if (op.p + op.l <= pos) pos -= op.l;
-      else if (op.p < pos) pos = op.p;
-    }
-    return pos;
-  }
-  function diffOps(oldText, newText) {
-    if (oldText === newText) return [];
-    var minLen = Math.min(oldText.length, newText.length);
-    var p = 0;
-    while (p < minLen && oldText[p] === newText[p]) p++;
-    var s = 0;
-    while (s < minLen - p && oldText[oldText.length - 1 - s] === newText[newText.length - 1 - s]) s++;
-    var ops = [];
-    var delLen = oldText.length - p - s;
-    if (delLen > 0) ops.push({ t: 'del', p: p, l: delLen });
-    var ins = newText.slice(p, newText.length - s);
-    if (ins.length > 0) ops.push({ t: 'ins', p: p, s: ins });
-    return ops;
-  }
+  });
 
   /* ---------------- state ---------------- */
-  var ta = document.getElementById('editor');
   var titleInput = document.getElementById('title-input');
   var statusEl = document.getElementById('status');
   var collabsEl = document.getElementById('collabs');
@@ -197,9 +145,9 @@ export const CLIENT_JS = `
   var ws = null;
   var myId = null;
   var rev = 0;
-  var text = '';
-  var pending = null;   // { opId, ops }
-  var buffer = [];      // ops composed while waiting for ack
+  var synced = false;
+  var pending = null;          // { opId, delta: Delta }
+  var buffer = new Delta();    // composed local ops while awaiting ack
   var opSeq = 0;
   var connected = false;
   var backoff = 1000;
@@ -210,7 +158,7 @@ export const CLIENT_JS = `
     statusEl.querySelector('span').textContent = label;
   }
   function updateCount() {
-    countEl.textContent = '字符 ' + text.length;
+    countEl.textContent = '字符 ' + Math.max(quill.getLength() - 1, 0);
   }
   function updateRev() {
     revEl.textContent = '修订版本 ' + rev;
@@ -235,24 +183,23 @@ export const CLIENT_JS = `
   function send(obj) {
     if (connected && ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
   }
-  function sendOps(ops) {
-    pending = { opId: ++opSeq, ops: ops };
-    send({ type: 'op', opId: pending.opId, baseRev: rev, ops: ops });
+  function transmit(delta) {
+    pending = { opId: ++opSeq, delta: delta };
+    send({ type: 'op', opId: pending.opId, baseRev: rev, delta: { ops: delta.ops } });
     setStatus('syncing', '同步中…');
   }
 
   function onInit(msg) {
     rev = msg.rev;
-    text = msg.text;
     myId = msg.you.id;
     clients = msg.clients;
     pending = null;
-    buffer = [];
-    ta.value = text;
-    ta.readOnly = false;
+    buffer = new Delta();
+    quill.setContents(new Delta(msg.delta.ops), 'api');
+    quill.enable(true);
+    synced = true;
     titleInput.value = msg.title;
     document.title = (msg.title || '未命名文档') + ' · 协作文档';
-    clients = msg.clients;
     renderCollabs();
     updateCount();
     updateRev();
@@ -261,22 +208,19 @@ export const CLIENT_JS = `
   }
 
   function onRemoteOp(msg) {
-    var serverOps = msg.ops;
+    var R = new Delta(msg.delta.ops);
+    var toApply = R;
     if (pending) {
-      var overPending = transformOps(serverOps, pending.ops, false);
-      pending.ops = transformOps(pending.ops, serverOps);
-      serverOps = overPending;
+      var newPending = R.transform(pending.delta, true);
+      toApply = pending.delta.transform(R, false);
+      pending.delta = newPending;
     }
-    if (buffer.length) {
-      var overBuffer = transformOps(serverOps, buffer, false);
-      buffer = transformOps(buffer, serverOps);
-      serverOps = overBuffer;
+    if (buffer.ops.length) {
+      var newBuffer = toApply.transform(buffer, true);
+      toApply = buffer.transform(toApply, false);
+      buffer = newBuffer;
     }
-    var selS = ta.selectionStart, selE = ta.selectionEnd;
-    text = applyOps(text, serverOps);
-    ta.value = text;
-    ta.selectionStart = mapPosition(selS, serverOps);
-    ta.selectionEnd = mapPosition(selE, serverOps);
+    quill.updateContents(toApply, 'api');
     rev = msg.rev;
     updateCount();
     updateRev();
@@ -287,10 +231,10 @@ export const CLIENT_JS = `
     rev = msg.rev;
     updateRev();
     pending = null;
-    if (buffer.length) {
+    if (buffer.ops.length) {
       var b = buffer;
-      buffer = [];
-      sendOps(b);
+      buffer = new Delta();
+      transmit(b);
     } else {
       setStatus('online', '已连接 · 实时同步');
     }
@@ -298,7 +242,8 @@ export const CLIENT_JS = `
 
   function connect() {
     setStatus('offline', '连接中…');
-    ta.readOnly = true;
+    quill.enable(false);
+    synced = false;
     ws = new WebSocket(cfg.wsUrl);
     ws.onopen = function () { connected = true; };
     ws.onmessage = function (event) {
@@ -327,7 +272,8 @@ export const CLIENT_JS = `
     };
     ws.onclose = function () {
       connected = false;
-      ta.readOnly = true;
+      quill.enable(false);
+      synced = false;
       setStatus('offline', '离线 · ' + Math.round(backoff / 1000) + 's 后重连');
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 10000);
@@ -336,14 +282,12 @@ export const CLIENT_JS = `
   }
 
   /* ---------------- local editing ---------------- */
-  ta.addEventListener('input', function () {
-    var ops = diffOps(text, ta.value);
-    if (!ops.length) return;
-    text = ta.value;
+  quill.on('text-change', function (delta, old, source) {
+    if (source !== 'user') return;
     updateCount();
-    if (!connected) return;
-    if (pending) buffer = composeOps(buffer, ops);
-    else sendOps(ops);
+    if (!synced || !connected) return;
+    if (pending) buffer = buffer.compose(delta);
+    else transmit(delta);
   });
 
   var titleTimer = null;
@@ -356,11 +300,11 @@ export const CLIENT_JS = `
   });
 
   var cursorTimer = null;
-  document.addEventListener('selectionchange', function () {
-    if (document.activeElement !== ta) return;
+  quill.on('selection-change', function (range) {
+    if (!range) return;
     clearTimeout(cursorTimer);
     cursorTimer = setTimeout(function () {
-      send({ type: 'cursor', start: ta.selectionStart, end: ta.selectionEnd });
+      send({ type: 'cursor', start: range.index, end: range.index + range.length });
     }, 200);
   });
 
@@ -415,7 +359,7 @@ export const CLIENT_JS = `
       .then(function (data) {
         revList.style.display = 'none';
         revView.style.display = 'flex';
-        document.getElementById('rev-content').textContent = data.content || '';
+        document.getElementById('rev-content').textContent = data.text || '';
         document.getElementById('btn-restore').dataset.rev = data.revision;
       });
   });
@@ -423,11 +367,10 @@ export const CLIENT_JS = `
     fetch(prefix + '/api/v1/documents/' + docId + '/content?rev=' + this.dataset.rev)
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (typeof data.content !== 'string') return;
-        ta.value = data.content;
-        var evt = document.createEvent('Event');
-        evt.initEvent('input', true, true);
-        ta.dispatchEvent(evt);
+        if (!data.delta || !Array.isArray(data.delta.ops)) return;
+        var current = quill.getContents();
+        var replaceDelta = new Delta().delete(current.length()).concat(new Delta(data.delta.ops));
+        quill.updateContents(replaceDelta, 'user');
         mask.classList.remove('show');
         toast('已恢复到 v' + data.revision);
       });

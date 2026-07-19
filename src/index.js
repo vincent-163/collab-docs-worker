@@ -1,6 +1,10 @@
 import { DocRoom } from "./doc-room.js";
 import { STYLE_CSS, CLIENT_JS } from "./static.js";
 import { homePage, editorPage, notFoundPage } from "./pages.js";
+import { deltaToMarkdown, deltaToText } from "./delta-export.js";
+import quillJs from "./vendor/quill.js";
+import quillCoreCss from "./vendor/quill.core.css";
+import quillSnowCss from "./vendor/quill.snow.css";
 
 export { DocRoom };
 
@@ -12,6 +16,9 @@ const html = (body, status = 200) =>
 
 const json = (data, status = 200) =>
   Response.json(data, { status, headers: { "cache-control": "no-store" } });
+
+const staticAsset = (body, contentType) =>
+  new Response(body, { headers: { "content-type": contentType, "cache-control": "public, max-age=86400" } });
 
 function randomId(length = 10) {
   const bytes = new Uint8Array(length);
@@ -25,12 +32,12 @@ function room(env, id) {
   return env.DOC_ROOMS.getByName(id);
 }
 
-async function createDocument(env, prefix, origin, { title = "", content = "" } = {}) {
+async function createDocument(env, prefix, origin, { title = "", content = "", delta = null } = {}) {
   const id = randomId();
   const meta = await room(env, id).fetch("https://room/init", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title, content })
+    body: JSON.stringify({ title, content, delta })
   }).then((r) => r.json());
   return {
     document: { document_id: id, ...meta },
@@ -39,13 +46,8 @@ async function createDocument(env, prefix, origin, { title = "", content = "" } 
   };
 }
 
-async function proxyRoom(env, id, path, init) {
-  const stub = room(env, id);
-  return stub.fetch(`https://room${path}`, init);
-}
-
 async function roomOr404(env, id, path, init) {
-  const response = await proxyRoom(env, id, path, init);
+  const response = await room(env, id).fetch(`https://room${path}`, init);
   if (response.status === 404) return null;
   return response;
 }
@@ -67,10 +69,19 @@ export default {
     }
 
     if (path === "/static/style.css") {
-      return new Response(STYLE_CSS, { headers: { "content-type": "text/css; charset=utf-8", "cache-control": "public, max-age=300" } });
+      return staticAsset(STYLE_CSS, "text/css; charset=utf-8");
     }
     if (path === "/static/client.js") {
-      return new Response(CLIENT_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=300" } });
+      return staticAsset(CLIENT_JS, "application/javascript; charset=utf-8");
+    }
+    if (path === "/static/vendor/quill.js") {
+      return staticAsset(quillJs, "application/javascript; charset=utf-8");
+    }
+    if (path === "/static/vendor/quill.core.css") {
+      return staticAsset(quillCoreCss, "text/css; charset=utf-8");
+    }
+    if (path === "/static/vendor/quill.snow.css") {
+      return staticAsset(quillSnowCss, "text/css; charset=utf-8");
     }
 
     // Form-based anonymous creation from the homepage.
@@ -157,11 +168,12 @@ export default {
         ]);
         if (!metaRes || !contentRes) return json({ error: "not_found" }, 404);
         const meta = await metaRes.json();
-        const { content } = await contentRes.json();
+        const { delta, text } = await contentRes.json();
         const format = url.searchParams.get("format") || "markdown";
         const isTxt = format === "txt";
-        const body = isTxt ? content : `# ${meta.title || "未命名文档"}\n\n${content}`;
-        const filename = `${meta.title || "document"}-${id}.${isTxt ? "txt" : "md"}`;
+        const title = meta.title || "未命名文档";
+        const body = isTxt ? `${title}\n\n${text}` : `# ${title}\n\n${deltaToMarkdown(delta.ops)}`;
+        const filename = `${title}-${id}.${isTxt ? "txt" : "md"}`;
         return new Response(body, {
           headers: {
             "content-type": `${isTxt ? "text/plain" : "text/markdown"}; charset=utf-8`,

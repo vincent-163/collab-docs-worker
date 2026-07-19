@@ -1,38 +1,43 @@
 # Collab Docs Worker
 
-多人实时协作文档应用，部署在 Cloudflare Workers 上，通过共享入口 Worker 暴露在
+多人实时协作的富文本文档应用，部署在 Cloudflare Workers 上，通过共享入口 Worker 暴露在
 `https://workers.v-163.top/docs/`。
 
 ## 功能
 
 - 首页匿名创建文档，无需注册登录，链接即权限
-- 基于 WebSocket + 操作转换（OT）的多人实时协同编辑，冲突自动合并
+- **富文本编辑**（Quill）：标题、粗体/斜体/下划线/删除线、行内代码、文字颜色与
+  背景色、有序/无序列表、引用块、代码块、链接、图片（链接）、表格
+- 基于 WebSocket + Quill Delta 操作转换（OT）的多人实时协同编辑，冲突自动合并
 - 协作 presence：自动分配昵称/颜色，实时显示在线协作者
 - 历史版本：每次修改记录为修订版本，可查看任意历史版本并一键恢复
-- 文档标题实时同步、字符统计、Markdown/TXT 导出
+- 文档标题实时同步、字符统计、Markdown/TXT 导出（表格导出为 Markdown 表格）
 - 类飞书/谷歌/腾讯文档风格的开放 REST API
 
 ## 架构
 
-- `src/index.js` — HTTP 路由：首页、编辑器页面、REST API、WebSocket 入口
-- `src/doc-room.js` — `DocRoom` Durable Object：每个文档一个实例，持有权威文档
-  状态、操作日志、修订快照，处理 OT 变换、presence 广播与持久化（分块写入 DO storage）
-- `src/ot.js` — 纯文本 OT 算法（insert/delete 变换、diff、组合），服务端与客户端共用同一套规则
-- `src/static.js` — 编辑器前端（CSS + 无依赖 vanilla JS 客户端，内置 OT 客户端状态机）
+- `src/index.js` — HTTP 路由：首页、编辑器页面、REST API、WebSocket 入口、静态资源
+- `src/doc-room.js` — `DocRoom` Durable Object：每个文档一个实例，持有权威 Delta
+  文档、操作日志、修订快照，处理并发变换、presence 广播与持久化（分块写入 DO storage）
+- `src/delta-sanitize.js` — 客户端 Delta 校验与净化（属性白名单、链接/颜色安全检查）
+- `src/delta-export.js` — Delta → 纯文本 / Markdown 转换
+- `src/static.js` — 编辑器前端（CSS + 无依赖 vanilla JS 客户端，内置 Delta OT 状态机）
+- `src/vendor/` — Quill 2 编辑器及其主题 CSS（随 Worker 分发，不依赖外部 CDN）
 - `src/pages.js` — 首页/编辑器 HTML 模板
 
-协作协议：客户端把本地编辑 diff 成 insert/delete 操作并携带 `baseRev` 发送；
-服务端将操作对 `baseRev` 之后的已应用操作做 OT 变换后落盘并广播。客户端对
-未确认的 pending 操作做同样的变换，保证所有副本最终一致。
+协作协议：客户端把本地编辑产生的 Delta 携带 `baseRev` 发送；服务端将该 Delta 对
+`baseRev` 之后的已应用操作做 OT 变换（`quill-delta` 的 `transform`，历史操作优先）
+后落盘并广播。客户端对未确认的 pending/buffer Delta 做同样的变换，保证所有副本
+最终一致。旧版纯文本文档在加载时自动迁移为 Delta 格式（旧修订记录不再可取）。
 
 ## REST API
 
 | 方法 | 路径 | 说明 |
 | ---- | ---- | ---- |
-| POST | `/docs/api/v1/documents` | 创建文档 `{title?, content?}` |
+| POST | `/docs/api/v1/documents` | 创建文档 `{title?, content?}` 或 `{title?, delta:{ops}}` |
 | GET | `/docs/api/v1/documents/:id` | 文档元信息 |
 | PATCH | `/docs/api/v1/documents/:id` | 更新标题 |
-| GET | `/docs/api/v1/documents/:id/content` | 正文，`?rev=N` 取历史版本 |
+| GET | `/docs/api/v1/documents/:id/content` | 正文（`delta` + 纯文本 `text`），`?rev=N` 取历史版本 |
 | GET | `/docs/api/v1/documents/:id/revisions` | 修订版本列表 |
 | GET | `/docs/api/v1/documents/:id/collaborators` | 当前在线协作者 |
 | GET | `/docs/api/v1/documents/:id/export` | 导出 `?format=markdown\|txt` |
@@ -55,5 +60,6 @@ scripts/deploy.sh
 
 ## 限制
 
-- 单文档最大 50,000 字符（DO storage 单值 128 KiB 约束）
+- 单文档 Delta JSON 最大约 480K 字符（DO storage 单值 128 KiB 约束，已分块存储）
 - 操作日志超过 2,000 条后压缩为快照，更早的历史版本不再可取（API 返回 410）
+- 图片仅支持外链 URL，不做上传托管

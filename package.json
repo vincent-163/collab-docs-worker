@@ -8,5 +8,9 @@
   },
   "devDependencies": {
     "wrangler": "^4.110.0"
+  },
+  "dependencies": {
+    "quill": "^2.0.3",
+    "quill-delta": "^5.1.0"
   }
 }

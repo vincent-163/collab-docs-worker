@@ -14,5 +14,8 @@
     { "tag": "v1-doc-rooms", "new_sqlite_classes": ["DocRoom"] }
   ],
   "vars": { "PUBLIC_PREFIX": "/docs" },
+  "rules": [
+    { "type": "Text", "globs": ["**/vendor/*"] }
+  ],
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } }
 }

@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
-import { applyOps, transformOps, sanitizeOps } from "./ot.js";
+import Delta from "quill-delta";
+import { deltaToText } from "./delta-export.js";
+import { sanitizeDelta, summarizeDelta } from "./delta-sanitize.js";
 
-const MAX_DOC_CHARS = 50000;
+const MAX_DOC_JSON = 480000; // chars of JSON.stringify(delta ops)
 const MAX_TITLE_CHARS = 200;
 const LOG_COMPACT_AT = 2000;
 const CHUNK_SIZE = 48000; // chars per storage chunk, keeps every value < 128 KiB
@@ -19,29 +21,19 @@ function randomName() {
   return a + b;
 }
 
-function summarizeOps(ops) {
-  let ins = 0;
-  let del = 0;
-  for (const op of ops) {
-    if (op.t === "ins") ins += op.s.length;
-    else del += op.l;
-  }
-  return `+${ins} -${del}`;
-}
-
 export class DocRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.clients = new Map(); // WebSocket -> { id, name, color, start, end }
     this.nextClientId = 1;
-    this.text = "";
+    this.ops = [{ insert: "\n" }];
     this.rev = 0;
     this.title = "";
     this.createdAt = null;
     this.updatedAt = null;
-    this.log = []; // [{ rev, ts, by: { id, name }, ops }]
+    this.log = []; // [{ rev, ts, by: { id, name }, delta: [...ops] }]
     this.snapRev = 0;
-    this.snapText = "";
+    this.snapOps = [{ insert: "\n" }];
     this.savedChunks = 0;
     ctx.blockConcurrencyWhile(async () => {
       const count = (await ctx.storage.get("chunks")) || 0;
@@ -49,29 +41,38 @@ export class DocRoom extends DurableObject {
         const keys = Array.from({ length: count }, (_, i) => `s${i}`);
         const values = await ctx.storage.get(keys);
         const state = JSON.parse(keys.map((k) => values.get(k) || "").join(""));
-        this.text = state.text;
         this.rev = state.rev;
         this.title = state.title;
         this.createdAt = state.createdAt;
         this.updatedAt = state.updatedAt;
-        this.log = state.log || [];
-        this.snapRev = state.snapRev || 0;
-        this.snapText = state.snapText || "";
         this.savedChunks = count;
+        if (Array.isArray(state.ops)) {
+          this.ops = state.ops;
+          this.log = state.log || [];
+          this.snapRev = state.snapRev || 0;
+          this.snapOps = state.snapOps || [{ insert: "\n" }];
+        } else if (typeof state.text === "string") {
+          // Legacy plain-text document: convert to a delta and compact the
+          // old-format operation log (old revisions are no longer served).
+          this.ops = [{ insert: state.text + "\n" }];
+          this.snapRev = this.rev;
+          this.snapOps = this.ops;
+          this.log = [];
+        }
       }
     });
   }
 
   async save() {
     const payload = JSON.stringify({
-      text: this.text,
+      ops: this.ops,
       rev: this.rev,
       title: this.title,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       log: this.log,
       snapRev: this.snapRev,
-      snapText: this.snapText
+      snapOps: this.snapOps
     });
     const chunks = Math.ceil(payload.length / CHUNK_SIZE) || 1;
     const entries = { chunks };
@@ -85,28 +86,36 @@ export class DocRoom extends DurableObject {
     this.savedChunks = chunks;
   }
 
+  doc() {
+    return new Delta(this.ops);
+  }
+
   meta() {
     return {
       title: this.title,
       revision: this.rev,
       created_at: this.createdAt,
       updated_at: this.updatedAt,
-      chars: this.text.length,
+      chars: deltaToText(this.ops).length,
       collaborators: this.clients.size
     };
   }
 
   contentAt(targetRev) {
-    if (targetRev === this.rev) return { revision: this.rev, content: this.text };
+    if (targetRev === this.rev) return this.payload(this.rev, this.ops);
     if (targetRev < 0 || targetRev > this.rev) return null;
     if (targetRev < this.snapRev) return { gone: true };
-    let text = this.snapRev > 0 ? this.snapText : "";
+    let doc = new Delta(this.snapRev > 0 ? this.snapOps : []);
     for (const entry of this.log) {
       if (entry.rev <= this.snapRev) continue;
       if (entry.rev > targetRev) break;
-      text = applyOps(text, entry.ops);
+      doc = doc.compose(new Delta(entry.delta));
     }
-    return { revision: targetRev, content: text };
+    return this.payload(targetRev, doc.ops);
+  }
+
+  payload(revision, ops) {
+    return { revision, delta: { ops }, text: deltaToText(ops) };
   }
 
   broadcast(message, except = null) {
@@ -146,9 +155,19 @@ export class DocRoom extends DurableObject {
     if (!client) return;
 
     if (msg.type === "op") {
-      const ops = sanitizeOps(msg.ops, this.text.length);
-      if (!ops || !Number.isInteger(msg.baseRev)) {
-        console.warn("bad_op", JSON.stringify(msg).slice(0, 300), "docLen", this.text.length);
+      if (!Number.isInteger(msg.baseRev)) {
+        ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
+        return;
+      }
+      let clientDelta;
+      try {
+        clientDelta = sanitizeDelta(msg.delta);
+      } catch (err) {
+        console.warn("bad_op delta parse", String(err).slice(0, 200));
+        clientDelta = null;
+      }
+      if (!clientDelta) {
+        console.warn("bad_op", JSON.stringify(msg.delta).slice(0, 300));
         ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
         return;
       }
@@ -156,32 +175,48 @@ export class DocRoom extends DurableObject {
         ws.send(JSON.stringify({ type: "error", code: "stale", message: "版本过旧，正在重新同步" }));
         return;
       }
-      const history = this.log
-        .filter((entry) => entry.rev > msg.baseRev)
-        .flatMap((entry) => entry.ops);
-      const transformed = history.length ? transformOps(ops, history) : ops;
-      if (transformed.length === 0) {
-        ws.send(JSON.stringify({ type: "op", rev: this.rev, ops: [], opId: msg.opId, by: { id: client.id, name: client.name, color: client.color } }));
+      let transformed = clientDelta;
+      try {
+        if (msg.baseRev < this.rev) {
+          const history = this.log
+            .filter((entry) => entry.rev > msg.baseRev)
+            .reduce((acc, entry) => acc.compose(new Delta(entry.delta)), new Delta());
+          transformed = history.transform(clientDelta, true);
+        }
+      } catch (err) {
+        console.warn("bad_op transform", String(err).slice(0, 200));
+        ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
         return;
       }
-      const nextText = applyOps(this.text, transformed);
-      if (nextText.length > MAX_DOC_CHARS) {
+      if (transformed.ops.length === 0) {
+        ws.send(JSON.stringify({ type: "op", rev: this.rev, delta: { ops: [] }, opId: msg.opId, by: { id: client.id, name: client.name, color: client.color } }));
+        return;
+      }
+      let nextDoc;
+      try {
+        nextDoc = this.doc().compose(transformed);
+      } catch (err) {
+        console.warn("bad_op compose", String(err).slice(0, 200));
+        ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
+        return;
+      }
+      if (JSON.stringify(nextDoc.ops).length > MAX_DOC_JSON) {
         ws.send(JSON.stringify({ type: "error", code: "too_large", message: "文档已达到大小上限" }));
         return;
       }
-      this.text = nextText;
+      this.ops = nextDoc.ops;
       this.rev += 1;
       this.updatedAt = Date.now();
-      this.log.push({ rev: this.rev, ts: this.updatedAt, by: { id: client.id, name: client.name }, ops: transformed });
+      this.log.push({ rev: this.rev, ts: this.updatedAt, by: { id: client.id, name: client.name }, delta: transformed.ops });
       if (this.log.length > LOG_COMPACT_AT) {
         this.snapRev = this.rev;
-        this.snapText = this.text;
+        this.snapOps = this.ops;
         this.log = [];
       }
       this.broadcast({
         type: "op",
         rev: this.rev,
-        ops: transformed,
+        delta: { ops: transformed.ops },
         opId: msg.opId,
         by: { id: client.id, name: client.name, color: client.color }
       });
@@ -222,15 +257,19 @@ export class DocRoom extends DurableObject {
     if (url.pathname === "/init" && request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       if (this.createdAt === null) {
-        const content = String(body.content || "").slice(0, MAX_DOC_CHARS);
         this.title = String(body.title || "").slice(0, MAX_TITLE_CHARS);
-        this.text = content;
-        this.rev = 0;
         this.createdAt = Date.now();
         this.updatedAt = this.createdAt;
-        if (content) {
+        let initial = null;
+        if (body.delta && Array.isArray(body.delta.ops)) {
+          initial = sanitizeDelta(body.delta);
+        } else if (typeof body.content === "string" && body.content) {
+          initial = new Delta().insert(body.content + "\n");
+        }
+        if (initial && initial.ops.length) {
+          this.ops = initial.ops;
           this.rev = 1;
-          this.log.push({ rev: 1, ts: this.createdAt, by: { id: 0, name: "创建者" }, ops: [{ t: "ins", p: 0, s: content }] });
+          this.log.push({ rev: 1, ts: this.createdAt, by: { id: 0, name: "创建者" }, delta: initial.ops });
         }
         await this.save();
       }
@@ -275,7 +314,7 @@ export class DocRoom extends DurableObject {
           revision: entry.rev,
           created_at: entry.ts,
           author: entry.by,
-          summary: summarizeOps(entry.ops)
+          summary: summarizeDelta(new Delta(entry.delta))
         }));
       return json({ revision: this.rev, earliest_available: this.log.length ? this.log[0].rev : this.rev, revisions });
     }
@@ -304,7 +343,7 @@ export class DocRoom extends DurableObject {
       serverWs.send(JSON.stringify({
         type: "init",
         rev: this.rev,
-        text: this.text,
+        delta: { ops: this.ops },
         title: this.title,
         you: { id: info.id, name: info.name, color: info.color },
         clients: this.presence()
