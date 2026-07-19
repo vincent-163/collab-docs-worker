@@ -106,13 +106,32 @@ export function diffOps(oldText, newText) {
   return ops;
 }
 
+// Merge sequentially-applied ops where possible so buffers stay small.
+export function composeOps(a, b) {
+  const out = [...a];
+  for (const op of b) {
+    const last = out[out.length - 1];
+    if (last && last.t === "ins" && op.t === "ins" && op.p === last.p + last.s.length) {
+      out[out.length - 1] = { t: "ins", p: last.p, s: last.s + op.s };
+    } else if (last && last.t === "del" && op.t === "del" && (op.p === last.p || op.p + op.l === last.p)) {
+      out[out.length - 1] = { t: "del", p: Math.min(last.p, op.p), l: last.l + op.l };
+    } else {
+      out.push(op);
+    }
+  }
+  return out;
+}
+
 // Validate and normalize ops coming from a client. Returns null when invalid.
 export function sanitizeOps(ops, maxLen) {
-  if (!Array.isArray(ops) || ops.length === 0 || ops.length > 64) return null;
+  if (!Array.isArray(ops) || ops.length === 0 || ops.length > 512) return null;
+  let inserted = 0;
   const out = [];
   for (const op of ops) {
     if (op.t === "ins") {
       if (typeof op.s !== "string" || op.s.length === 0) return null;
+      inserted += op.s.length;
+      if (inserted > 100000) return null;
       if (!Number.isInteger(op.p) || op.p < 0 || op.p > maxLen) return null;
       out.push({ t: "ins", p: op.p, s: op.s });
     } else if (op.t === "del") {

@@ -148,6 +148,21 @@ export const CLIENT_JS = `
     }
     return out;
   }
+  function composeOps(a, b) {
+    var out = a.slice();
+    for (var i = 0; i < b.length; i++) {
+      var op = b[i];
+      var last = out[out.length - 1];
+      if (last && last.t === 'ins' && op.t === 'ins' && op.p === last.p + last.s.length) {
+        out[out.length - 1] = { t: 'ins', p: last.p, s: last.s + op.s };
+      } else if (last && last.t === 'del' && op.t === 'del' && (op.p === last.p || op.p + op.l === last.p)) {
+        out[out.length - 1] = { t: 'del', p: Math.min(last.p, op.p), l: last.l + op.l };
+      } else {
+        out.push(op);
+      }
+    }
+    return out;
+  }
   function mapPosition(pos, ops) {
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -327,7 +342,7 @@ export const CLIENT_JS = `
     text = ta.value;
     updateCount();
     if (!connected) return;
-    if (pending) buffer = buffer.concat(ops);
+    if (pending) buffer = composeOps(buffer, ops);
     else sendOps(ops);
   });
 

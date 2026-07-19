@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyOps, transformOp, transformOps, mapPosition, diffOps, sanitizeOps } from "../src/ot.js";
+import { applyOps, transformOp, transformOps, mapPosition, diffOps, sanitizeOps, composeOps } from "../src/ot.js";
 
 test("applyOps insert and delete", () => {
   assert.equal(applyOps("hello world", [{ t: "ins", p: 5, s: "," }]), "hello, world");
@@ -85,6 +85,25 @@ test("mapPosition tracks caret through ops", () => {
   assert.equal(mapPosition(1, [{ t: "ins", p: 2, s: "abc" }]), 1);
   assert.equal(mapPosition(5, [{ t: "del", p: 2, l: 2 }]), 3);
   assert.equal(mapPosition(3, [{ t: "del", p: 2, l: 5 }]), 2);
+});
+
+test("composeOps merges adjacent inserts and deletes", () => {
+  const typed = composeOps(
+    [{ t: "ins", p: 0, s: "a" }],
+    [{ t: "ins", p: 1, s: "b" }, { t: "ins", p: 2, s: "c" }]
+  );
+  assert.deepEqual(typed, [{ t: "ins", p: 0, s: "abc" }]);
+  const backspaces = composeOps(
+    [{ t: "del", p: 5, l: 1 }],
+    [{ t: "del", p: 4, l: 1 }, { t: "del", p: 3, l: 1 }]
+  );
+  assert.deepEqual(backspaces, [{ t: "del", p: 3, l: 3 }]);
+  const mixed = composeOps([{ t: "ins", p: 0, s: "a" }], [{ t: "del", p: 0, l: 1 }]);
+  assert.equal(mixed.length, 2);
+  // composed ops must equal sequential application
+  const seq = [diffOps("hello", "helloX"), diffOps("helloX", "helloXY"), diffOps("helloXY", "helloX")];
+  const merged = seq.reduce((acc, ops) => composeOps(acc, ops), []);
+  assert.equal(applyOps("hello", merged), applyOps(applyOps(applyOps("hello", seq[0]), seq[1]), seq[2]));
 });
 
 test("sanitizeOps rejects malformed input", () => {

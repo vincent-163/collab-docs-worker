@@ -148,6 +148,7 @@ export class DocRoom extends DurableObject {
     if (msg.type === "op") {
       const ops = sanitizeOps(msg.ops, this.text.length + 1);
       if (!ops || !Number.isInteger(msg.baseRev)) {
+        console.warn("bad_op", JSON.stringify(msg).slice(0, 300), "docLen", this.text.length);
         ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
         return;
       }
