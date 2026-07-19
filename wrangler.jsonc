@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "collab-docs-08c62922e2",
+  "account_id": "866d7003697784726c578ca9bd665865",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-19",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      { "name": "DOC_ROOMS", "class_name": "DocRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1-doc-rooms", "new_sqlite_classes": ["DocRoom"] }
+  ],
+  "vars": { "PUBLIC_PREFIX": "/docs" },
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } }
+}

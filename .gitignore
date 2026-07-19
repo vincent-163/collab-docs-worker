@@ -1,0 +1,7 @@
+node_modules/
+.wrangler/
+.dev.vars
+.op.env
+*.op.env
+credentials/*
+!credentials/.gitkeep
