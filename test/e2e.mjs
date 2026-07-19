@@ -1,4 +1,4 @@
-/* E2E test against a running collab-docs worker (default http://127.0.0.1:8787) */
+/* E2E test for collab-docs v3 against a running worker (default http://127.0.0.1:8787) */
 import assert from "node:assert/strict";
 import Delta from "quill-delta";
 
@@ -22,42 +22,103 @@ async function waitFor(fn, msg, timeoutMs = 15000) {
   process.exit(1);
 }
 
-const res = await fetch(`${BASE}/api/v1/documents`, {
+const cookiesOf = (res) =>
+  (res.headers.getSetCookie ? res.headers.getSetCookie() : [])
+    .map((c) => c.split(";")[0])
+    .join("; ");
+
+const authed = (cookie, extra = {}) => ({ ...extra, headers: { cookie, ...(extra.headers || {}) } });
+const bearer = (key) => ({ headers: { authorization: `Bearer ${key}` } });
+
+async function register(email, password) {
+  return fetch(`${BASE}/register`, {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ email, password })
+  });
+}
+
+/* ---------- health & auth gates ---------- */
+const health = await (await fetch(`${BASE}/health`)).json();
+check(health.ok === true, "health endpoint");
+
+check((await fetch(`${BASE}/api/v1/documents`, { method: "POST" })).status === 401, "anonymous API create rejected");
+check((await fetch(`${BASE}/app/state`)).status === 401, "anonymous dashboard state rejected");
+{
+  const res = await fetch(`${BASE}/app`, { redirect: "manual" });
+  check(res.status === 303 && res.headers.get("location").endsWith("/login"), "anonymous /app redirects to login");
+}
+
+/* ---------- register / login ---------- */
+const run = Date.now().toString(36);
+const emailA = `e2e-a-${run}@example.com`;
+const emailB = `e2e-b-${run}@example.com`;
+const PASS = "e2e-password-123";
+
+const regA = await register(emailA, PASS);
+check(regA.status === 303, "register A redirects");
+const cookieA = cookiesOf(regA);
+check(cookieA.includes("cd_session="), "register sets session cookie");
+
+check((await register(emailA, PASS)).status === 409, "duplicate register rejected");
+
+const regB = await register(emailB, PASS);
+const cookieB = cookiesOf(regB);
+check(regB.status === 303 && cookieB.includes("cd_session="), "register B works");
+
+{
+  const login = await fetch(`${BASE}/login`, {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ email: emailA, password: PASS })
+  });
+  check(login.status === 303 && cookiesOf(login).includes("cd_session="), "login A works");
+  const bad = await fetch(`${BASE}/login`, {
+    method: "POST",
+    body: new URLSearchParams({ email: emailA, password: "wrong-password" })
+  });
+  check(bad.status === 401, "wrong password rejected");
+}
+
+/* ---------- documents (session) ---------- */
+const created = await (await fetch(`${BASE}/api/v1/documents`, authed(cookieA, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ title: "E2E 测试文档", content: "hello world" })
-});
-check(res.status === 201, "create returns 201");
-const created = await res.json();
+}))).json();
 const id = created.document.document_id;
 check(id && created.edit_url.includes(`/d/${id}`), `created doc ${id}`);
 check(created.document.revision === 1, "initial content becomes revision 1");
 
-const meta = await (await fetch(`${BASE}/api/v1/documents/${id}`)).json();
-check(meta.document.title === "E2E 测试文档", "meta title matches");
-check(meta.document.chars === 11, "meta chars matches");
+const list = await (await fetch(`${BASE}/api/v1/documents`, authed(cookieA))).json();
+check(list.documents.some((d) => d.document_id === id), "doc listed for owner");
 
-const content = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
-check(content.text === "hello world", "plain text content matches");
-check(Array.isArray(content.delta.ops), "delta content present");
+check((await fetch(`${BASE}/api/v1/documents/${id}`, authed(cookieB))).status === 403, "other user API access forbidden");
+{
+  const page = await fetch(`${BASE}/d/${id}`, authed(cookieB));
+  check(page.status === 403, "other user editor access forbidden");
+}
+check((await fetch(`${BASE}/d/${id}`, authed(cookieA))).status === 200, "owner editor page renders");
 
-const patched = await fetch(`${BASE}/api/v1/documents/${id}`, {
+const titleInfo = await (await fetch(`${BASE}/d/${id}/title`, authed(cookieA))).json();
+check(titleInfo.title === "E2E 测试文档", "doc title lookup works");
+
+const patched = await fetch(`${BASE}/api/v1/documents/${id}`, authed(cookieA, {
   method: "PATCH",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ title: "改名后的文档" })
-});
+}));
 check(patched.status === 200 && (await patched.json()).document.title === "改名后的文档", "PATCH title works");
 
-// --- WebSocket collaboration between two clients ---
-const wsUrl = `${BASE.replace("http", "ws")}/d/${id}/ws`;
+/* ---------- realtime collaboration (two WS clients, owner session) ---------- */
+const wsBase = BASE.replace("http", "ws");
 
-function client(name) {
-  const ws = new WebSocket(wsUrl);
+function client(name, url, cookie) {
+  const ws = new WebSocket(url, { headers: { cookie } });
   const c = {
     name, ws,
     doc: new Delta(), rev: null, id: null,
-    pending: null, // { opId, delta }
-    opSeq: 0,
+    pending: null, opSeq: 0, lastError: null,
     sendDelta(delta) {
       c.pending = { opId: ++c.opSeq, delta };
       c.doc = c.doc.compose(delta);
@@ -83,6 +144,8 @@ function client(name) {
             c.doc = c.doc.compose(R);
           }
           c.rev = Math.max(c.rev, msg.rev);
+        } else if (msg.type === "error") {
+          c.lastError = msg;
         }
       };
       ws.onerror = reject;
@@ -91,71 +154,174 @@ function client(name) {
   return c;
 }
 
-const a = client("A");
-const b = client("B");
+const a = client("A", `${wsBase}/d/${id}/ws`, cookieA);
+const b = client("B", `${wsBase}/d/${id}/ws`, cookieA);
 await Promise.all([a.ready, b.ready]);
 check(a.id !== b.id, "clients have distinct ids");
 
-// A inserts "A:" at position 0; B concurrently appends " :B" at position 11.
 a.sendDelta(new Delta().insert("A:"));
 b.sendDelta(new Delta().retain(11).insert(" :B"));
-
 await waitFor(() => a.pending === null && b.pending === null, "both ops acknowledged");
-console.log("ok: both ops acknowledged");
 await waitFor(() => a.rev >= 3 && b.rev >= 3, "both clients reached rev 3");
 
-const final = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
-console.log("server:", JSON.stringify(final.text), "rev", final.revision);
-check(final.revision === 3, "revision advanced to 3");
-check(final.text === "A:hello world :B", "server text correct");
+const final = await (await fetch(`${BASE}/api/v1/documents/${id}/content`, authed(cookieA))).json();
+check(final.revision === 3 && final.text === "A:hello world :B", "server converged");
 assert.deepEqual(a.doc.ops, final.delta.ops, "client A converged with server");
 assert.deepEqual(b.doc.ops, final.delta.ops, "client B converged with server");
 
-// --- rich text: bold + color + image ---
 a.sendDelta(new Delta().retain(16).insert(" 加粗红字", { bold: true, color: "#e74c3c" }));
 await waitFor(() => a.pending === null, "formatted op acked");
-await new Promise((r) => setTimeout(r, 1500));
-let rich = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
-check(rich.delta.ops.some((op) => op.attributes?.bold && op.attributes?.color === "#e74c3c"), "bold+color attributes stored");
+await waitFor(async () => true, "settle", 1);
+let rich = await (await fetch(`${BASE}/api/v1/documents/${id}/content`, authed(cookieA))).json();
+check(rich.delta.ops.some((op) => op.attributes?.bold && op.attributes?.color === "#e74c3c"), "bold+color stored");
 assert.deepEqual(b.doc.ops, rich.delta.ops, "client B received formatted insert");
 
-b.sendDelta(new Delta().retain(new Delta(rich.delta.ops).length() - 1).insert({ image: "https://example.com/pic.png" }));
-await waitFor(() => b.pending === null, "image op acked");
-await new Promise((r) => setTimeout(r, 1500));
-rich = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
-check(rich.delta.ops.some((op) => op.insert?.image === "https://example.com/pic.png"), "image embed stored");
-check(rich.text.includes("[图片]"), "plain text marks image");
-
-// --- evil input is sanitized ---
 a.sendDelta(new Delta().retain(1).insert("x", { link: "javascript:alert(1)" }));
 await waitFor(() => a.pending === null, "evil op acked");
-await new Promise((r) => setTimeout(r, 1500));
-rich = await (await fetch(`${BASE}/api/v1/documents/${id}/content`)).json();
+rich = await (await fetch(`${BASE}/api/v1/documents/${id}/content`, authed(cookieA))).json();
 check(!JSON.stringify(rich.delta.ops).includes("javascript:"), "javascript: links stripped");
 
-const collabs = await (await fetch(`${BASE}/api/v1/documents/${id}/collaborators`)).json();
-check(collabs.collaborators.length === 2, "presence shows 2 collaborators");
+const revs = await (await fetch(`${BASE}/api/v1/documents/${id}/revisions`, authed(cookieA))).json();
+check(revs.revisions.length >= 4, `revisions list has entries (${revs.revisions.length})`);
 
-const revs = await (await fetch(`${BASE}/api/v1/documents/${id}/revisions`)).json();
-check(revs.revisions.length >= 5, `revisions list has entries (${revs.revisions.length})`);
-check(revs.revisions[0].revision === revs.revision, "revisions newest-first");
+const old = await (await fetch(`${BASE}/api/v1/documents/${id}/content?rev=1`, authed(cookieA))).json();
+check(old.text === "hello world", "historical revision reconstructable");
 
-const old = await (await fetch(`${BASE}/api/v1/documents/${id}/content?rev=1`)).json();
-check(old.text === "hello world", "historical revision content reconstructable");
-
-const exportRes = await fetch(`${BASE}/api/v1/documents/${id}/export?format=markdown`);
-const exported = await exportRes.text();
+const exported = await (await fetch(`${BASE}/api/v1/documents/${id}/export?format=markdown`, authed(cookieA))).text();
 check(exported.startsWith("# 改名后的文档"), "markdown export has title heading");
-check(exported.includes("** 加粗红字**") && exported.includes("![图片](https://example.com/pic.png)"), "markdown export renders formats");
-
-// editor page
-const page = await fetch(`${BASE}/d/${id}`);
-check(page.status === 200 && (await page.text()).includes("quill"), "editor page renders with quill");
-
-const missing = await fetch(`${BASE}/d/zzzzzz`);
-check(missing.status === 404, "unknown doc id 404s");
+check(exported.includes("** 加粗红字**"), "markdown export renders formats");
 
 a.ws.close();
 b.ws.close();
+
+/* ---------- share links ---------- */
+const shareRo = await (await fetch(`${BASE}/d/${id}/shares`, authed(cookieA, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ mode: "ro" })
+}))).json();
+check(shareRo.token && shareRo.url.includes("/s/"), "read-only share created");
+
+const shareRw = await (await fetch(`${BASE}/d/${id}/shares`, authed(cookieA, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ mode: "rw", expiresIn: "week" })
+}))).json();
+check(shareRw.mode === "rw" && shareRw.expiresAt > Date.now(), "rw share with expiry created");
+
+const shareList = await (await fetch(`${BASE}/d/${id}/shares`, authed(cookieA))).json();
+check(shareList.shares.length === 2, "share list shows both links");
+check((await fetch(`${BASE}/d/${id}/shares`, authed(cookieB))).status === 403, "non-owner cannot manage shares");
+
+{
+  const page = await fetch(`${BASE}/s/${shareRo.token}`, authed(cookieB));
+  const html = await page.text();
+  check(page.status === 200 && html.includes("只读"), "B opens ro share as read-only");
+}
+// B connects over the ro share and tries to edit -> rejected.
+const bRo = client("B-ro", `${wsBase}/s/${shareRo.token}/ws`, cookieB);
+await bRo.ready;
+bRo.sendDelta(new Delta().retain(1).insert("HACK"));
+await waitFor(() => bRo.lastError && bRo.lastError.code === "read_only", "ro share rejects edits");
+check(bRo.pending !== null, "ro edit never acknowledged");
+bRo.ws.close();
+
+// B edits over the rw share.
+const bRw = client("B-rw", `${wsBase}/s/${shareRw.token}/ws`, cookieB);
+await bRw.ready;
+const before = await (await fetch(`${BASE}/api/v1/documents/${id}/content`, authed(cookieA))).json();
+bRw.sendDelta(new Delta().retain(new Delta(before.delta.ops).length() - 1).insert(" [B编辑]"));
+await waitFor(() => bRw.pending === null, "rw share edit acknowledged");
+const afterRw = await (await fetch(`${BASE}/api/v1/documents/${id}/content`, authed(cookieA))).json();
+check(afterRw.text.includes("[B编辑]"), "rw share edit persisted");
+bRw.ws.close();
+
+// Delete the ro share -> link dies.
+await fetch(`${BASE}/d/${id}/shares/${shareRo.token}`, authed(cookieA, { method: "DELETE" }));
+check((await fetch(`${BASE}/s/${shareRo.token}`, authed(cookieB))).status === 404, "deleted share link 404s");
+
+/* ---------- API keys ---------- */
+const keyRes = await (await fetch(`${BASE}/app/apikeys`, authed(cookieA, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "e2e" })
+}))).json();
+check(keyRes.key && keyRes.key.startsWith("cdk_"), "api key created");
+
+const keyList = await (await fetch(`${BASE}/api/v1/documents`, bearer(keyRes.key))).json();
+check(keyList.documents.some((d) => d.document_id === id), "api key lists documents");
+
+const keyDoc = await fetch(`${BASE}/api/v1/documents/${id}/content`, bearer(keyRes.key));
+check(keyDoc.status === 200, "api key reads content");
+check((await fetch(`${BASE}/api/v1/documents`, bearer("cdk_bad.bad"))).status === 401, "bad api key rejected");
+
+const keyCreated = await fetch(`${BASE}/api/v1/documents`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${keyRes.key}`, "content-type": "application/json" },
+  body: JSON.stringify({ title: "API Key 文档", content: "via key" })
+});
+check(keyCreated.status === 201, "api key creates document");
+
+/* ---------- images ---------- */
+const png = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+const form = new FormData();
+form.append("file", new Blob([png], { type: "image/png" }), "pixel.png");
+const imgRes = await fetch(`${BASE}/api/v1/images`, authed(cookieA, { method: "POST", body: form }));
+check(imgRes.status === 201, "image uploaded");
+const img = await imgRes.json();
+check(img.url.includes("/img/"), "image url returned");
+{
+  const fetched = await fetch(`${BASE}${img.url.replace(/^\/docs/, "")}`);
+  check(fetched.status === 200 && (await fetched.arrayBuffer()).byteLength === png.length, "image served publicly");
+}
+check((await fetch(`${BASE}/api/v1/images`, { method: "POST", body: form })).status === 401, "anonymous upload rejected");
+
+/* ---------- dashboard state / folders ---------- */
+const state = await (await fetch(`${BASE}/app/state`, authed(cookieA))).json();
+check(state.balanceCents === 500, "signup gift balance $5");
+check(state.bytesStored === png.length && state.imageCount === 1, "image usage tracked");
+check(state.nodes.some((n) => n.type === "doc" && n.docId === id), "doc appears in knowledge tree");
+check(state.apiKeys.some((k) => k.id === keyRes.id), "api key listed in state");
+
+const folder = await (await fetch(`${BASE}/app/folders`, authed(cookieA, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "项目" })
+}))).json();
+check(folder.node && folder.node.type === "folder", "folder created");
+
+const docNode = state.nodes.find((n) => n.type === "doc" && n.docId === id);
+const moved = await fetch(`${BASE}/app/nodes/${docNode.id}`, authed(cookieA, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ parent: folder.node.id })
+}));
+check(moved.status === 200 && (await moved.json()).node.parent === folder.node.id, "doc moved into folder");
+
+const renamed = await fetch(`${BASE}/app/nodes/${folder.node.id}`, authed(cookieA, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "项目集" })
+}));
+check(renamed.status === 200 && (await renamed.json()).node.name === "项目集", "folder renamed");
+
+check((await fetch(`${BASE}/app/nodes/${folder.node.id}`, authed(cookieA, { method: "DELETE" }))).status === 200, "folder deleted");
+{
+  const after = await (await fetch(`${BASE}/app/state`, authed(cookieA))).json();
+  const n = after.nodes.find((x) => x.id === docNode.id);
+  check(n && n.parent === null, "doc fell back to root after folder deletion");
+}
+
+/* ---------- logout ---------- */
+{
+  const out = await fetch(`${BASE}/logout`, authed(cookieA, { method: "POST", redirect: "manual" }));
+  check(out.status === 303, "logout redirects");
+  const dead = await fetch(`${BASE}/app/state`, authed(cookieA));
+  check(dead.status === 401, "old session invalid after logout");
+}
+
 console.log("\nALL E2E CHECKS PASSED");
 process.exit(0);

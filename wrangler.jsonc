@@ -7,15 +7,25 @@
   "workers_dev": true,
   "durable_objects": {
     "bindings": [
-      { "name": "DOC_ROOMS", "class_name": "DocRoom" }
+      { "name": "DOC_ROOMS", "class_name": "DocRoomV2" },
+      { "name": "USER_ROOMS", "class_name": "UserRoom" },
+      { "name": "DIRECTORY", "class_name": "DirectoryRoom" }
     ]
   },
   "migrations": [
-    { "tag": "v1-doc-rooms", "new_sqlite_classes": ["DocRoom"] }
+    { "tag": "v1-doc-rooms", "new_sqlite_classes": ["DocRoom"] },
+    { "tag": "v2-auth", "new_sqlite_classes": ["DocRoomV2", "UserRoom", "DirectoryRoom"] },
+    { "tag": "v3-cleanup", "deleted_classes": ["DocRoom"] }
   ],
+  "r2_buckets": [
+    { "binding": "IMAGES", "bucket_name": "collab-docs-images" }
+  ],
+  "triggers": {
+    "crons": ["23 4 1 * *"]
+  },
   "vars": { "PUBLIC_PREFIX": "/docs" },
   "rules": [
-    { "type": "Text", "globs": ["**/vendor/*"] }
+    { "type": "Text", "globs": ["**/vendor/*", "**/skill/*"] }
   ],
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } }
 }

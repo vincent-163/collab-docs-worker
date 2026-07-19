@@ -21,16 +21,19 @@ function randomName() {
   return a + b;
 }
 
-export class DocRoom extends DurableObject {
+export class DocRoomV2 extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
-    this.clients = new Map(); // WebSocket -> { id, name, color, start, end }
+    this.clients = new Map(); // WebSocket -> { id, name, color, start, end, mode }
     this.nextClientId = 1;
     this.ops = [{ insert: "\n" }];
     this.rev = 0;
     this.title = "";
+    this.owner = null;
+    this.shares = {}; // token -> { mode: "ro"|"rw", expiresAt: number|null, createdAt }
     this.createdAt = null;
     this.updatedAt = null;
+    this.lastPush = 0;
     this.log = []; // [{ rev, ts, by: { id, name }, delta: [...ops] }]
     this.snapRev = 0;
     this.snapOps = [{ insert: "\n" }];
@@ -43,6 +46,8 @@ export class DocRoom extends DurableObject {
         const state = JSON.parse(keys.map((k) => values.get(k) || "").join(""));
         this.rev = state.rev;
         this.title = state.title;
+        this.owner = state.owner || null;
+        this.shares = state.shares || {};
         this.createdAt = state.createdAt;
         this.updatedAt = state.updatedAt;
         this.savedChunks = count;
@@ -68,6 +73,8 @@ export class DocRoom extends DurableObject {
       ops: this.ops,
       rev: this.rev,
       title: this.title,
+      owner: this.owner,
+      shares: this.shares,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       log: this.log,
@@ -93,12 +100,34 @@ export class DocRoom extends DurableObject {
   meta() {
     return {
       title: this.title,
+      owner: this.owner,
       revision: this.rev,
       created_at: this.createdAt,
       updated_at: this.updatedAt,
       chars: deltaToText(this.ops).length,
       collaborators: this.clients.size
     };
+  }
+
+  docId() {
+    return this.ctx.id.name;
+  }
+
+  // Best-effort title/timestamp push to the owner's UserRoom, throttled.
+  pushToOwner(force = false) {
+    if (!this.owner) return;
+    const now = Date.now();
+    if (!force && now - this.lastPush < 30000) return;
+    this.lastPush = now;
+    this.ctx.waitUntil(
+      this.env.USER_ROOMS.getByName(this.owner)
+        .fetch(`https://user/docs/${this.docId()}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: this.title, updatedAt: this.updatedAt })
+        })
+        .catch((err) => console.warn("pushToOwner failed", String(err).slice(0, 120)))
+    );
   }
 
   contentAt(targetRev) {
@@ -155,6 +184,10 @@ export class DocRoom extends DurableObject {
     if (!client) return;
 
     if (msg.type === "op") {
+      if (client.mode === "ro") {
+        ws.send(JSON.stringify({ type: "error", code: "read_only", message: "只读链接，无法编辑" }));
+        return;
+      }
       if (!Number.isInteger(msg.baseRev)) {
         ws.send(JSON.stringify({ type: "error", code: "bad_op", message: "非法的操作" }));
         return;
@@ -220,15 +253,18 @@ export class DocRoom extends DurableObject {
         opId: msg.opId,
         by: { id: client.id, name: client.name, color: client.color }
       });
+      this.pushToOwner();
       this.save();
       return;
     }
 
     if (msg.type === "title") {
+      if (client.mode === "ro") return;
       const title = String(msg.title || "").slice(0, MAX_TITLE_CHARS);
       this.title = title;
       this.updatedAt = Date.now();
       this.broadcast({ type: "title", title, by: { id: client.id, name: client.name } }, ws);
+      this.pushToOwner(true);
       this.save();
       return;
     }
@@ -258,6 +294,7 @@ export class DocRoom extends DurableObject {
       const body = await request.json().catch(() => ({}));
       if (this.createdAt === null) {
         this.title = String(body.title || "").slice(0, MAX_TITLE_CHARS);
+        this.owner = typeof body.owner === "string" ? body.owner : null;
         this.createdAt = Date.now();
         this.updatedAt = this.createdAt;
         let initial = null;
@@ -288,9 +325,55 @@ export class DocRoom extends DurableObject {
         this.title = body.title.slice(0, MAX_TITLE_CHARS);
         this.updatedAt = Date.now();
         this.broadcast({ type: "title", title: this.title, by: { id: 0, name: "API" } });
+        this.pushToOwner(true);
         await this.save();
       }
       return json(this.meta());
+    }
+
+    if (url.pathname === "/shares" && request.method === "GET") {
+      if (this.createdAt === null) return json({ error: "not_found" }, 404);
+      const now = Date.now();
+      return json({
+        shares: Object.entries(this.shares).map(([token, s]) => ({
+          token,
+          mode: s.mode,
+          expiresAt: s.expiresAt,
+          expired: s.expiresAt !== null && s.expiresAt <= now,
+          createdAt: s.createdAt
+        }))
+      });
+    }
+
+    if (url.pathname === "/shares" && request.method === "POST") {
+      if (this.createdAt === null) return json({ error: "not_found" }, 404);
+      const body = await request.json().catch(() => ({}));
+      const mode = body.mode === "rw" ? "rw" : "ro";
+      const expiresAt = Number.isFinite(body.expiresAt) ? body.expiresAt : null;
+      if (Object.keys(this.shares).length >= 50) return json({ error: "too_many_shares" }, 400);
+      const token = `${this.docId()}${Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
+      this.shares[token] = { mode, expiresAt, createdAt: Date.now() };
+      await this.save();
+      return json({ token, mode, expiresAt });
+    }
+
+    if (url.pathname.startsWith("/shares/") && request.method === "DELETE") {
+      if (this.createdAt === null) return json({ error: "not_found" }, 404);
+      const token = url.pathname.slice("/shares/".length);
+      delete this.shares[token];
+      await this.save();
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/share-access" && request.method === "GET") {
+      if (this.createdAt === null) return json({ error: "not_found" }, 404);
+      const token = url.searchParams.get("token") || "";
+      const share = this.shares[token];
+      if (!share) return json({ error: "not_found" }, 404);
+      if (share.expiresAt !== null && share.expiresAt <= Date.now()) {
+        return json({ error: "expired" }, 410);
+      }
+      return json({ mode: share.mode, expiresAt: share.expiresAt });
     }
 
     if (url.pathname === "/content" && request.method === "GET") {
@@ -337,7 +420,8 @@ export class DocRoom extends DurableObject {
         name: randomName(),
         color: COLORS[(this.nextClientId - 2) % COLORS.length],
         start: null,
-        end: null
+        end: null,
+        mode: request.headers.get("x-share-mode") === "ro" ? "ro" : "rw"
       };
       this.clients.set(serverWs, info);
       serverWs.send(JSON.stringify({
