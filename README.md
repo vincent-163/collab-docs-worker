@@ -138,6 +138,8 @@ Calls 权限，无法程序化创建）：
    npx wrangler secret put REALTIME_APP_ID
    npx wrangler secret put REALTIME_APP_SECRET
    ```
+   GitHub Actions 部署时，也可将同名值保存为仓库 Secrets；部署工作流会通过
+   `wrangler secret bulk` 将其同步到 Worker。
 3. 重新部署。未设置这两个 secret 时一切照旧（mesh 模式），无需任何变更。
    本地开发可在 `.dev.vars`（已 gitignore）中放入同名变量调试。
 

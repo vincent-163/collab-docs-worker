@@ -15,6 +15,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Configure Realtime secrets
+        run: |
+          node -e 'process.stdout.write(JSON.stringify({ REALTIME_APP_ID: process.env.REALTIME_APP_ID, REALTIME_APP_SECRET: process.env.REALTIME_APP_SECRET }))' \
+            | npx wrangler secret bulk
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          REALTIME_APP_ID: ${{ secrets.REALTIME_APP_ID }}
+          REALTIME_APP_SECRET: ${{ secrets.REALTIME_APP_SECRET }}
       - name: Deploy Worker
         run: scripts/deploy.sh
         env:
