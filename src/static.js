@@ -1717,6 +1717,9 @@ export const MEET_JS = `
     var failedTrack = (res.tracks || []).find(function (t) { return t.errorCode; });
     if (failedTrack) throw new Error(failedTrack.errorDescription || failedTrack.errorCode);
     if (!res.sessionDescription) return Promise.resolve();
+    if (res.sessionDescription.type === 'answer') {
+      return sfuPc.setRemoteDescription(res.sessionDescription);
+    }
     if (res.sessionDescription.type !== 'offer') return Promise.reject(new Error('unexpected SFU session description'));
     return sfuPc.setRemoteDescription(res.sessionDescription)
       .then(function () { return sfuPc.createAnswer(); })
