@@ -37,7 +37,10 @@ const CRON_SETTLE = "23 4 1 * *";
 const CRON_CHAT_CLEANUP = "17 3 * * *";
 
 const html = (body, status = 200, headers = {}) =>
-  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...headers } });
+  new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers }
+  });
 
 const json = (data, status = 200) =>
   Response.json(data, { status, headers: { "cache-control": "no-store" } });

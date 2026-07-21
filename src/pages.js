@@ -410,7 +410,7 @@ export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false) {
 <div class="chat-hint meet-hint">${sfuEnabled ? "音视频经 Cloudflare Realtime SFU 中转（失败时自动回退浏览器点对点直连）；会议 ID：" : "音视频通过浏览器 WebRTC 点对点直连（Worker 仅做信令中转）；会议 ID："}${escapeHtml(meetId)}</div>
 <div id="toast" class="toast"></div>
 <script>window.MEET_CFG = ${JSON.stringify({ prefix, meetId, wsUrl, sfu: !!sfuEnabled })};</script>
-<script src="${prefix}/static/meet.js?v=4"></script>
+<script src="${prefix}/static/meet.js?v=5"></script>
 </body>
 </html>`;
 }
