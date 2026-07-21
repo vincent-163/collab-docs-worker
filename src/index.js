@@ -518,7 +518,15 @@ export default {
       // Response.json() cannot carry null-body statuses; normalize to 200.
       const sfuJson = (res) => json(res.data, [101, 204, 205, 304].includes(res.status) ? 200 : res.status);
       if (sub === "session" && method === "POST") {
-        const res = await realtimeRequest(env, "/sessions/new", { method: "POST", body: {} });
+        const body = await request.json().catch(() => null);
+        const sessionDescription = sanitizeSessionDescription(body?.sessionDescription);
+        if (!sessionDescription || sessionDescription.type !== "offer") {
+          return json({ error: "bad_session_description" }, 400);
+        }
+        const res = await realtimeRequest(env, "/sessions/new", {
+          method: "POST",
+          body: { sessionDescription }
+        });
         return sfuJson(res);
       }
       if (sid && sub.endsWith("/tracks") && method === "POST") {
