@@ -20,7 +20,7 @@ const TRACK_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID_RE = /^[A-Za-z0-9-]{8,128}$/;
 const MID_RE = /^[A-Za-z0-9]{1,8}$/;
 const MAX_TRACKS_PER_CALL = 32;
-const MAX_READY_RETRIES = 6;
+const MAX_READY_RETRIES = 1;
 const READY_RETRY_BASE_MS = 100;
 
 // Validate a tracks array before proxying to the Realtime API.

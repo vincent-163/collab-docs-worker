@@ -1636,6 +1636,32 @@ export const MEET_JS = `
     });
   }
 
+  function sfuConnected(pc) {
+    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      return Promise.resolve();
+    }
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () {
+        cleanup();
+        reject(new Error('Cloudflare SFU ICE connection timeout (' + pc.iceConnectionState + ')'));
+      }, 10000);
+      function cleanup() {
+        clearTimeout(timer);
+        pc.removeEventListener('iceconnectionstatechange', check);
+      }
+      function check() {
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          cleanup();
+          resolve();
+        } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+          cleanup();
+          reject(new Error('Cloudflare SFU ICE connection ' + pc.iceConnectionState));
+        }
+      }
+      pc.addEventListener('iceconnectionstatechange', check);
+    });
+  }
+
   function sfuFail(err) {
     console.warn('sfu failed, falling back to mesh', err);
     sfuOn = false;
@@ -1687,7 +1713,9 @@ export const MEET_JS = `
     }).then(function (d) {
       if (d.errorCode) throw new Error(d.errorDescription || d.errorCode);
       sfuSessionId = d.sessionId;
-      return sfuPc.setRemoteDescription(d.sessionDescription);
+      return sfuPc.setRemoteDescription(d.sessionDescription).then(function () {
+        return sfuConnected(sfuPc);
+      });
     });
   }
 
