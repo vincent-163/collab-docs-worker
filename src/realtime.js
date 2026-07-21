@@ -50,6 +50,18 @@ export function sanitizeTrackRefs(input) {
   return out;
 }
 
+export function sanitizeCloseTrackRefs(input) {
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_TRACKS_PER_CALL) return null;
+  const out = [];
+  for (const track of input) {
+    if (!track || typeof track !== "object") return null;
+    const mid = String(track.mid ?? "");
+    if (!MID_RE.test(mid)) return null;
+    out.push({ mid });
+  }
+  return out;
+}
+
 // Validate a { type, sdp } session description from the browser.
 export function sanitizeSessionDescription(input) {
   if (!input || typeof input !== "object") return null;

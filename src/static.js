@@ -1850,7 +1850,7 @@ export const MEET_JS = `
   function closeSfuRecords(records, keepalive) {
     if (!sfuSessionId || !records.length) return Promise.resolve();
     var tracks = records.map(function (record) {
-      return { location: 'local', mid: record.mid, trackName: record.trackName };
+      return { mid: record.mid };
     });
     return fetch(prefix + '/meet/' + cfg.meetId + '/sfu/sessions/' + sfuSessionId + '/tracks/close', {
       method: 'PUT',

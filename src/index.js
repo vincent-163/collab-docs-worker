@@ -16,7 +16,7 @@ import {
 } from "./auth.js";
 import { estimateMonthlyCents, oneTimeUploadCents } from "./billing.js";
 import {
-  realtimeEnabled, realtimeRequest, sanitizeTrackRefs, sanitizeSessionDescription
+  realtimeEnabled, realtimeRequest, sanitizeCloseTrackRefs, sanitizeTrackRefs, sanitizeSessionDescription
 } from "./realtime.js";
 import quillJs from "./vendor/quill.js";
 import quillCoreCss from "./vendor/quill.core.css";
@@ -572,9 +572,12 @@ export default {
       }
       if (sid && sub.endsWith("/tracks/close") && method === "PUT") {
         const body = await request.json().catch(() => null);
-        const tracks = sanitizeTrackRefs(body?.tracks);
+        const tracks = sanitizeCloseTrackRefs(body?.tracks);
         if (!tracks) return json({ error: "bad_tracks" }, 400);
-        const res = await realtimeRequest(env, `/sessions/${sid}/tracks/close`, { method: "PUT", body: { tracks } });
+        const res = await realtimeRequest(env, `/sessions/${sid}/tracks/close`, {
+          method: "PUT",
+          body: { tracks, force: true }
+        });
         return sfuJson(res);
       }
       return json({ error: "method_not_allowed" }, 405);

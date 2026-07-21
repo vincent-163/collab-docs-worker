@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  REALTIME_API_BASE, realtimeEnabled, realtimeRequest, realtimeUrl, sanitizeTrackRefs,
-  sanitizeSessionDescription
+  REALTIME_API_BASE, realtimeEnabled, realtimeRequest, realtimeUrl, sanitizeCloseTrackRefs,
+  sanitizeTrackRefs, sanitizeSessionDescription
 } from "../src/realtime.js";
 
 test("realtimeEnabled requires both credentials", () => {
@@ -71,6 +71,13 @@ test("sanitizeTrackRefs rejects malformed input", () => {
   assert.equal(sanitizeTrackRefs([{ location: "remote", sessionId: "short", trackName: "a" }]), null);
   assert.equal(sanitizeTrackRefs([{ location: "remote", sessionId: "", trackName: "a" }]), null);
   assert.equal(sanitizeTrackRefs([{ location: "local", mid: "not a mid!", trackName: "a" }]), null);
+});
+
+test("sanitizeCloseTrackRefs accepts only mids", () => {
+  assert.deepEqual(sanitizeCloseTrackRefs([{ mid: "0", trackName: "ignored" }]), [{ mid: "0" }]);
+  assert.equal(sanitizeCloseTrackRefs([{ trackName: "missing-mid" }]), null);
+  assert.equal(sanitizeCloseTrackRefs([{ mid: "not a mid" }]), null);
+  assert.equal(sanitizeCloseTrackRefs([]), null);
 });
 
 test("sanitizeSessionDescription validates type and sdp", () => {
