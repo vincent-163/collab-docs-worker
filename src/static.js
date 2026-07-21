@@ -1648,8 +1648,19 @@ export const MEET_JS = `
     syncPeers();
   }
 
+  function sfuAddLocalTracks(stream) {
+    if (!stream || !sfuPc) return;
+    stream.getTracks().forEach(function (track) {
+      var exists = sfuPc.getSenders().some(function (sender) { return sender.track === track; });
+      if (!exists) sfuPc.addTrack(track, stream);
+    });
+  }
+
   function sfuEnsure(stream) {
-    if (sfuSessionId) return Promise.resolve();
+    if (sfuSessionId) {
+      sfuAddLocalTracks(stream);
+      return Promise.resolve();
+    }
     sfuPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }] });
     sfuPc.ontrack = function (e) {
       var mid = e.transceiver ? e.transceiver.mid : null;
@@ -1659,7 +1670,12 @@ export const MEET_JS = `
       makeTile('p' + clientId, peer ? peer.name : '参会者', peer ? peer.color : '#888');
       attachStream('p' + clientId, (e.streams && e.streams[0]) || new MediaStream([e.track]));
     };
-    stream.getTracks().forEach(function (t) { sfuPc.addTrack(t, stream); });
+    if (stream) {
+      sfuAddLocalTracks(stream);
+    } else {
+      sfuPc.addTransceiver('audio', { direction: 'recvonly' });
+      sfuPc.addTransceiver('video', { direction: 'recvonly' });
+    }
     return sfuPc.createOffer().then(function (offer) {
       return sfuPc.setLocalDescription(offer);
     }).then(function () {
@@ -1681,12 +1697,22 @@ export const MEET_JS = `
 
   function sfuPublish(stream) {
     if (myId === null) return Promise.reject(new Error('not initialized'));
+    var existingSession = !!sfuSessionId;
     return sfuEnsure(stream).then(function () {
+      if (!existingSession) return;
+      return sfuPc.createOffer()
+        .then(function (offer) { return sfuPc.setLocalDescription(offer); })
+        .then(function () { return iceGathered(sfuPc); });
+    }).then(function () {
       sfuTag = 'm' + cfg.meetId + '-c' + myId + '-' + Math.random().toString(36).slice(2, 8);
       var tracks = localTransceivers().map(function (t) {
         return { location: 'local', mid: t.mid, trackName: sfuTag + '-' + t.sender.track.kind };
       });
-      return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', { tracks: tracks });
+      var payload = { tracks: tracks };
+      if (existingSession) {
+        payload.sessionDescription = { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp };
+      }
+      return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', payload);
     }).then(function (res) {
       if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
       var failedTrack = (res.tracks || []).find(function (t) { return t.errorCode; });
@@ -1730,10 +1756,25 @@ export const MEET_JS = `
     return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', { tracks: want })
       .then(function (res) {
         if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
+        var retry = false;
         (res.tracks || []).forEach(function (t) {
+          var key = t.sessionId + '/' + t.trackName;
+          if (t.errorCode) {
+            delete sfuSubs[key];
+            if (t.errorCode === 'empty_track_error') {
+              retry = true;
+              return;
+            }
+            throw new Error(t.errorDescription || t.errorCode);
+          }
           var peerId = sfuSessionPeer[t.sessionId];
           if (t.mid !== undefined && t.mid !== null && peerId !== undefined) sfuMidMap[t.mid] = peerId;
         });
+        if (retry) {
+          setTimeout(sfuMaybeSync, 1000);
+          return;
+        }
+        if (!res.sessionDescription) return;
         // Remote track pulls come back as an offer we must answer.
         return sfuPc.setRemoteDescription(res.sessionDescription)
           .then(function () { return sfuPc.createAnswer(); })
