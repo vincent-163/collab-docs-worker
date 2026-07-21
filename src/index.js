@@ -7,7 +7,7 @@ import { MeetRoom } from "./meet-room.js";
 import { STYLE_CSS, CLIENT_JS, DASHBOARD_JS, CHAT_JS, SHEET_JS, MEET_JS } from "./static.js";
 import {
   landingPage, authPage, dashboardPage, editorPage, notFoundPage, shareErrorPage,
-  chatPage, sheetPage, meetPage
+  chatPage, sheetPage, meetPage, meetEndedPage
 } from "./pages.js";
 import { deltaToMarkdown } from "./delta-export.js";
 import {
@@ -505,6 +505,18 @@ export default {
       return redirect(`${prefix}/meet/${id}`);
     }
 
+    // End a meeting (owner only, session auth). Idempotent: ending an already
+    // ended meeting returns the same meta again.
+    const meetEndMatch = path.match(/^\/meet\/([A-Za-z0-9]{6,24})\/end$/);
+    if (meetEndMatch && method === "POST") {
+      if (!session) return json({ error: "unauthorized" }, 401);
+      const metaRes = await meetRoom(env, meetEndMatch[1]).fetch("https://meet/meta");
+      if (metaRes.status === 404) return json({ error: "not_found" }, 404);
+      const meta = await metaRes.json();
+      if (meta.owner !== session.userId) return json({ error: "forbidden" }, 403);
+      return meetRoom(env, meetEndMatch[1]).fetch("https://meet/end", { method: "POST" });
+    }
+
     // Cloudflare Realtime SFU proxy: the App Secret stays server-side, the
     // browser drives sessions/tracks through these endpoints. Returns 503
     // when Realtime credentials are not configured (client then uses mesh).
@@ -516,8 +528,14 @@ export default {
       }
       const metaRes = await meetRoom(env, sfuMatch[1]).fetch("https://meet/meta");
       if (metaRes.status === 404) return json({ error: "not_found" }, 404);
+      const meta = await metaRes.json();
       const sub = sfuMatch[2];
       const sid = sfuMatch[3];
+      // After the meeting ends, new sessions/tracks/renegotiate are rejected;
+      // tracks/close stays allowed so leaving clients can clean up.
+      if (meta.ended_at && !(sid && sub.endsWith("/tracks/close"))) {
+        return json({ error: "meeting_ended", message: "会议已结束" }, 410);
+      }
       // Response.json() cannot carry null-body statuses; normalize to 200.
       const sfuJson = (res) => json(res.data, [101, 204, 205, 304].includes(res.status) ? 200 : res.status);
       if (sub === "session" && method === "POST") {
@@ -571,7 +589,13 @@ export default {
       if (metaRes.status === 404) return html(notFoundPage(prefix), 404);
       const meta = await metaRes.json();
       if (meetMatch[2] === "/ws") {
+        // The DO answers ended meetings itself (accept + ended + close).
         return meetRoom(env, id).fetch("https://meet/ws", request);
+      }
+      if (meta.ended_at) {
+        // Ended meetings show a dedicated page; do not touch the user's
+        // dashboard history (lastAt) or load the meeting client.
+        return html(meetEndedPage(prefix, meta.name, meta.ended_at), 410);
       }
       await userRoom(env, session.userId).fetch("https://user/meets", {
         method: "POST",
@@ -581,7 +605,7 @@ export default {
       const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
       const forwarded = request.headers.get("x-forwarded-prefix");
       const wsUrl = `${wsProtocol}//${url.host}${forwarded || prefix}/meet/${id}/ws`;
-      return html(meetPage(prefix, id, meta.name, wsUrl, realtimeEnabled(env)));
+      return html(meetPage(prefix, id, meta.name, wsUrl, realtimeEnabled(env), meta.owner === session.userId));
     }
 
     // Public doc-title lookup for auto-titling document links (any logged-in user).

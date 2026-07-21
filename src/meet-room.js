@@ -4,16 +4,13 @@ import { randomName, pickColor } from "./names.js";
 const MAX_MESSAGES = 100; // ephemeral chat history (memory only)
 const MAX_TEXT = 4000;
 const MAX_NAME = 60;
-const MAX_SIGNAL_CHARS = 16000; // generous cap for SDP blobs
 
 const json = (data, status = 200) =>
   Response.json(data, { status, headers: { "cache-control": "no-store" } });
 
-// Meeting room: ephemeral text chat + WebRTC signaling relay. Media flows
-// directly between browsers (mesh P2P); the worker never touches media
-// bytes — Durable Objects cannot relay UDP/TURN traffic, so a true media
-// relay is not possible on this platform. Chat history is memory-only and
-// lost when the room restarts. Any logged-in user with the link may join.
+// Meeting room: ephemeral text chat and SFU track presence. Media is relayed
+// only by Cloudflare Realtime; this Durable Object does not relay SDP/ICE or
+// permit browser-to-browser mesh negotiation. Chat history is memory-only.
 export class MeetRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -24,22 +21,42 @@ export class MeetRoom extends DurableObject {
     this.name = "";
     this.owner = null;
     this.createdAt = null;
+    this.endedAt = null;
     ctx.blockConcurrencyWhile(async () => {
       const state = (await ctx.storage.get("meta")) || null;
       if (state) {
         this.name = state.name || "";
         this.owner = state.owner || null;
         this.createdAt = state.createdAt;
+        this.endedAt = state.endedAt ?? null; // old meta has no endedAt
       }
     });
   }
 
   async save() {
-    await this.ctx.storage.put("meta", { name: this.name, owner: this.owner, createdAt: this.createdAt });
+    await this.ctx.storage.put("meta", { name: this.name, owner: this.owner, createdAt: this.createdAt, endedAt: this.endedAt });
   }
 
   meta() {
-    return { name: this.name, owner: this.owner, created_at: this.createdAt, online: this.clients.size };
+    return { name: this.name, owner: this.owner, created_at: this.createdAt, ended_at: this.endedAt, online: this.clients.size };
+  }
+
+  // End the meeting (idempotent): notify and disconnect everyone, drop the
+  // ephemeral state, but keep the persisted meta (name/owner/createdAt/endedAt).
+  async endMeeting() {
+    if (this.endedAt !== null) return;
+    this.endedAt = Date.now();
+    await this.save();
+    this.broadcast({ type: "ended", endedAt: this.endedAt });
+    for (const ws of this.clients.keys()) {
+      try {
+        ws.close(4000, "meeting_ended");
+      } catch {
+        /* already closed */
+      }
+    }
+    this.clients.clear();
+    this.messages = [];
   }
 
   broadcast(message, except = null) {
@@ -109,28 +126,14 @@ export class MeetRoom extends DurableObject {
         .map((t) => ({
           sessionId: String(t?.sessionId || "").slice(0, 128),
           trackName: String(t?.trackName || "").slice(0, 64),
-          kind: t?.kind === "video" ? "video" : "audio"
+          kind: t?.kind === "video" ? "video" : "audio",
+          source: t?.source === "screen" ? "screen" : (t?.kind === "video" ? "camera" : "microphone")
         }))
         .filter((t) => /^[A-Za-z0-9-]{8,128}$/.test(t.sessionId) && /^[A-Za-z0-9_-]{1,64}$/.test(t.trackName));
       this.broadcastPresence();
       return;
     }
 
-    if (msg.type === "signal") {
-      // Relay WebRTC signaling (SDP offer/answer, ICE candidates) to one peer.
-      if (!Number.isInteger(msg.to)) return;
-      if (JSON.stringify(msg.data ?? null).length > MAX_SIGNAL_CHARS) return;
-      for (const [peerWs, peer] of this.clients) {
-        if (peer.id === msg.to) {
-          try {
-            peerWs.send(JSON.stringify({ type: "signal", from: client.id, data: msg.data }));
-          } catch {
-            /* ignore */
-          }
-          return;
-        }
-      }
-    }
   }
 
   removeClient(ws) {
@@ -161,6 +164,12 @@ export class MeetRoom extends DurableObject {
       return json(this.meta());
     }
 
+    if (url.pathname === "/end" && request.method === "POST") {
+      if (this.createdAt === null) return json({ error: "not_found" }, 404);
+      await this.endMeeting();
+      return json(this.meta());
+    }
+
     if (url.pathname === "/ws" && request.method === "GET") {
       if (this.createdAt === null) return json({ error: "not_found" }, 404);
       if (request.headers.get("Upgrade") !== "websocket") {
@@ -169,6 +178,12 @@ export class MeetRoom extends DurableObject {
       const pair = new WebSocketPair();
       const [clientWs, serverWs] = Object.values(pair);
       serverWs.accept();
+      if (this.endedAt !== null) {
+        // Late joiners get the terminal state instead of reconnecting forever.
+        serverWs.send(JSON.stringify({ type: "ended", endedAt: this.endedAt }));
+        serverWs.close(4000, "meeting_ended");
+        return new Response(null, { status: 101, webSocket: clientWs });
+      }
       const info = {
         id: this.nextClientId++,
         name: randomName(),

@@ -240,6 +240,73 @@ bRw.ws.close();
 await fetch(`${BASE}/d/${id}/shares/${shareRo.token}`, authed(cookieA, { method: "DELETE" }));
 check((await fetch(`${BASE}/s/${shareRo.token}`, authed(cookieB))).status === 404, "deleted share link 404s");
 
+/* ---------- meetings: owner can end ---------- */
+const meetRes = await fetch(`${BASE}/meet/new`, authed(cookieA, {
+  method: "POST",
+  redirect: "manual",
+  body: new URLSearchParams({ name: "E2E 会议" })
+}));
+check(meetRes.status === 303, "meet created redirects");
+const meetId = meetRes.headers.get("location").split("/").pop();
+
+{
+  const page = await fetch(`${BASE}/meet/${meetId}`, authed(cookieA));
+  const body = await page.text();
+  check(page.status === 200 && body.includes('id="btn-end"'), "owner sees end button");
+}
+{
+  const page = await fetch(`${BASE}/meet/${meetId}`, authed(cookieB));
+  const body = await page.text();
+  check(page.status === 200 && !body.includes('id="btn-end"'), "guest does not see end button");
+}
+check((await fetch(`${BASE}/meet/${meetId}/end`, { method: "POST" })).status === 401, "anonymous end rejected");
+check((await fetch(`${BASE}/meet/${meetId}/end`, authed(cookieB, { method: "POST" }))).status === 403, "non-owner end forbidden");
+check((await fetch(`${BASE}/meet/noSuchMeet1/end`, authed(cookieA, { method: "POST" }))).status === 404, "end of unknown meeting 404s");
+
+// B is connected over WS when A ends the meeting.
+const bMeet = new WebSocket(`${wsBase}/meet/${meetId}/ws`, { headers: { cookie: cookieB } });
+const bMeetTypes = [];
+const bMeetClosed = new Promise((resolve) => {
+  bMeet.onclose = (e) => resolve({ code: e.code, reason: e.reason });
+});
+bMeet.onmessage = (e) => bMeetTypes.push(JSON.parse(e.data).type);
+await waitFor(() => bMeetTypes.includes("init"), "B joined the meeting");
+
+const ended1 = await (await fetch(`${BASE}/meet/${meetId}/end`, authed(cookieA, { method: "POST" }))).json();
+check(ended1.ended_at > 0, "owner end returns ended_at");
+const bClose = await bMeetClosed;
+check(bMeetTypes.includes("ended"), "participant received ended broadcast");
+check(bClose.code === 4000 && bClose.reason === "meeting_ended", "participant ws closed with 4000/meeting_ended");
+
+const ended2 = await (await fetch(`${BASE}/meet/${meetId}/end`, authed(cookieA, { method: "POST" }))).json();
+check(ended2.ended_at === ended1.ended_at, "ending twice is idempotent");
+
+// Ended page: static 410 page, no meet.js, dashboard history lastAt untouched.
+const stateBefore = await (await fetch(`${BASE}/app/state`, authed(cookieA))).json();
+const meetLastAt = stateBefore.meets.find((m) => m.id === meetId)?.lastAt;
+check(meetLastAt > 0, "meeting recorded in dashboard history");
+{
+  const page = await fetch(`${BASE}/meet/${meetId}`, authed(cookieA));
+  const body = await page.text();
+  check(page.status === 410 && body.includes("会议已结束") && !body.includes("meet.js"), "ended meeting page is a static 410 page");
+}
+{
+  const stateAfter = await (await fetch(`${BASE}/app/state`, authed(cookieA))).json();
+  check(stateAfter.meets.find((m) => m.id === meetId)?.lastAt === meetLastAt, "ended page does not touch history lastAt");
+}
+
+// A late WS join learns the terminal state immediately instead of reconnecting.
+{
+  const late = new WebSocket(`${wsBase}/meet/${meetId}/ws`, { headers: { cookie: cookieB } });
+  const got = await new Promise((resolve, reject) => {
+    const types = [];
+    late.onmessage = (e) => types.push(JSON.parse(e.data).type);
+    late.onerror = reject;
+    late.onclose = (e) => resolve({ types, code: e.code });
+  });
+  check(got.types[0] === "ended" && got.code === 4000, "late joiner gets ended then 4000 close");
+}
+
 /* ---------- API keys ---------- */
 const keyRes = await (await fetch(`${BASE}/app/apikeys`, authed(cookieA, {
   method: "POST",

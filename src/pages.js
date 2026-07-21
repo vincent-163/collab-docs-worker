@@ -372,14 +372,14 @@ export function sheetPage(prefix, sheetId, title, wsUrl) {
 </html>`;
 }
 
-export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false) {
+export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false, isOwner = false) {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(name || "会议")} · 在线会议</title>
-<link rel="stylesheet" href="${prefix}/static/style.css?v=4">
+<link rel="stylesheet" href="${prefix}/static/style.css?v=5">
 </head>
 <body class="meet-body">
 <header class="topbar">
@@ -397,6 +397,8 @@ export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false) {
     <div class="meet-controls">
       <button id="btn-audio" class="btn secondary small">🎙 开启麦克风</button>
       <button id="btn-video" class="btn secondary small">📷 开启摄像头</button>
+      <button id="btn-screen" class="btn secondary small">🖥 分享屏幕</button>
+      ${isOwner ? '<button id="btn-end" class="btn danger small">结束会议</button>' : ""}
     </div>
   </main>
   <aside class="meet-chat">
@@ -407,10 +409,39 @@ export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false) {
     </div>
   </aside>
 </div>
-<div class="chat-hint meet-hint">${sfuEnabled ? "音视频经 Cloudflare Realtime SFU 中转（失败时自动回退浏览器点对点直连）；会议 ID：" : "音视频通过浏览器 WebRTC 点对点直连（Worker 仅做信令中转）；会议 ID："}${escapeHtml(meetId)}</div>
+<div class="chat-hint meet-hint">${sfuEnabled ? "摄像头、麦克风和屏幕共享只经 Cloudflare Realtime SFU 中转，不建立参会者点对点连接；会议 ID：" : "未配置 Cloudflare Realtime SFU，音视频与屏幕共享不可用；会议 ID："}${escapeHtml(meetId)}</div>
+<div id="meet-ended-overlay" class="meet-ended-overlay">
+  <div class="meet-ended-card">
+    <h2>🎥 会议已结束</h2>
+    <p id="meet-ended-detail">主持人已结束本次会议，感谢参与。</p>
+    <a class="btn" href="${prefix}/app">返回知识库</a>
+  </div>
+</div>
 <div id="toast" class="toast"></div>
-<script>window.MEET_CFG = ${JSON.stringify({ prefix, meetId, wsUrl, sfu: !!sfuEnabled })};</script>
-<script src="${prefix}/static/meet.js?v=6"></script>
+<script>window.MEET_CFG = ${JSON.stringify({ prefix, meetId, wsUrl, sfu: !!sfuEnabled, isOwner: !!isOwner })};</script>
+<script src="${prefix}/static/meet.js?v=8"></script>
+</body>
+</html>`;
+}
+
+export function meetEndedPage(prefix, name, endedAt) {
+  const ended = endedAt
+    ? new Date(endedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })
+    : "";
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会议已结束 · 在线会议</title>
+<link rel="stylesheet" href="${prefix}/static/style.css?v=5">
+</head>
+<body class="home">
+<section class="hero">
+  <h1>🎥 会议已结束</h1>
+  <p>「${escapeHtml(name || "会议")}」已由主持人结束。${ended ? `<br>结束时间：${escapeHtml(ended)}` : ""}</p>
+  <a class="btn" href="${prefix}/app">返回知识库</a>
+</section>
 </body>
 </html>`;
 }

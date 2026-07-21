@@ -210,6 +210,11 @@ a { color: var(--primary); text-decoration: none; }
 .meet-chat .chat-list { padding: 4px 0; min-height: 0; }
 .meet-chat .chat-bubble { background: #f7f9fd; }
 .meet-hint { text-align: center; padding-bottom: 10px; }
+.meet-ended-overlay { position: fixed; inset: 0; background: rgba(16, 24, 38, .72); display: none; align-items: center; justify-content: center; z-index: 60; }
+.meet-ended-overlay.show { display: flex; }
+.meet-ended-card { background: #fff; border-radius: 14px; padding: 30px 36px; text-align: center; max-width: 420px; margin: 0 16px; }
+.meet-ended-card h2 { font-size: 20px; margin-bottom: 10px; }
+.meet-ended-card p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 18px; }
 @media (max-width: 860px) {
   .meet-layout { flex-direction: column; }
   .meet-chat { width: 100%; border-left: none; border-top: 1px solid var(--border); }
@@ -1391,18 +1396,24 @@ export const MEET_JS = `
   var warnEl = document.getElementById('media-warning');
   var btnAudio = document.getElementById('btn-audio');
   var btnVideo = document.getElementById('btn-video');
+  var btnScreen = document.getElementById('btn-screen');
+  var btnEnd = document.getElementById('btn-end'); // owner only, may be null
+  var endedOverlayEl = document.getElementById('meet-ended-overlay');
 
   var ws = null;
   var connected = false;
   var backoff = 1000;
+  var reconnectTimer = null;
+  var ended = false;
   var myId = null;
   var clients = [];
   var seenIds = {};
-  var pcs = {}; // peerId -> { pc, polite, makingOffer, ignoreOffer }
   var tiles = {}; // peerId -> tile element
   var localStream = null;
+  var screenStream = null;
   var audioOn = false;
   var videoOn = false;
+  var screenOn = false;
 
   var rtcOk = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
   if (!window.WebSocket) {
@@ -1415,6 +1426,16 @@ export const MEET_JS = `
     warnEl.style.display = '';
     btnAudio.disabled = true;
     btnVideo.disabled = true;
+    btnScreen.disabled = true;
+  } else if (!cfg.sfu) {
+    warnEl.textContent = '未配置 Cloudflare Realtime SFU，音视频与屏幕共享已禁用；不会建立参会者点对点连接。';
+    warnEl.style.display = '';
+    btnAudio.disabled = true;
+    btnVideo.disabled = true;
+    btnScreen.disabled = true;
+  } else if (!navigator.mediaDevices.getDisplayMedia) {
+    btnScreen.disabled = true;
+    btnScreen.title = '当前浏览器不支持屏幕共享';
   }
 
   function esc(s) {
@@ -1498,115 +1519,28 @@ export const MEET_JS = `
       video = document.createElement('video');
       video.autoplay = true;
       video.playsInline = true;
-      if (id === 'me') video.muted = true;
+      if (id === 'me' || id === 'screen-me') video.muted = true;
       tile.insertBefore(video, tile.firstChild);
     }
     video.srcObject = stream;
   }
-  function removePeer(peerId) {
-    var ctx = pcs[peerId];
-    if (ctx) {
-      try { ctx.pc.close(); } catch (e) { /* ignore */ }
-      delete pcs[peerId];
-    }
-    if (tiles[peerId]) {
-      tiles[peerId].remove();
-      delete tiles[peerId];
-    }
-  }
-
-  /* ---------------- WebRTC mesh (perfect negotiation) ---------------- */
-  function sendSignal(to, data) {
-    send({ type: 'signal', to: to, data: data });
-  }
-  function ensurePc(peerId) {
-    if (pcs[peerId]) return pcs[peerId];
-    var ctx = {
-      pc: new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }),
-      polite: myId < peerId,
-      makingOffer: false,
-      ignoreOffer: false
-    };
-    pcs[peerId] = ctx;
-    var pc = ctx.pc;
-    if (localStream) {
-      localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
-    }
-    pc.onicecandidate = function (e) {
-      if (e.candidate) sendSignal(peerId, { candidate: e.candidate });
-    };
-    pc.ontrack = function (e) {
-      var peer = clientById(peerId);
-      makeTile(peerId, peer ? peer.name : '参会者', peer ? peer.color : '#888');
-      attachStream(peerId, e.streams[0]);
-    };
-    pc.onconnectionstatechange = function () {
-      if (pc.connectionState === 'failed') {
-        // mesh link failed (likely symmetric NAT without TURN): tell the user
-        toast('与一位参会者的连接失败：对方网络可能需要 TURN 中继（本平台不支持）');
-      }
-    };
-    pc.onnegotiationneeded = function () {
-      ctx.makingOffer = true;
-      pc.setLocalDescription()
-        .then(function () { sendSignal(peerId, { description: pc.localDescription }); })
-        .catch(function () { /* ignore */ })
-        .finally(function () { ctx.makingOffer = false; });
-    };
-    return ctx;
-  }
-  function onSignal(from, data) {
-    if (!rtcOk || !data) return;
-    var ctx = ensurePc(from);
-    var pc = ctx.pc;
-    (async function () {
-      try {
-        if (data.description) {
-          var offerCollision = data.description.type === 'offer' &&
-            (ctx.makingOffer || pc.signalingState !== 'stable');
-          ctx.ignoreOffer = !ctx.polite && offerCollision;
-          if (ctx.ignoreOffer) return;
-          await pc.setRemoteDescription(data.description);
-          if (data.description.type === 'offer') {
-            await pc.setLocalDescription();
-            sendSignal(from, { description: pc.localDescription });
-          }
-        } else if (data.candidate) {
-          try {
-            await pc.addIceCandidate(data.candidate);
-          } catch (err) {
-            if (!ctx.ignoreOffer) throw err;
-          }
-        }
-      } catch (err) {
-        console.warn('signal error', err);
-      }
-    })();
-  }
-  function syncPeers() {
-    // Create connections towards everyone once we have media; peers without
-    // media create theirs when our offer arrives.
-    if (!localStream || !rtcOk) return;
-    for (var i = 0; i < clients.length; i++) {
-      if (clients[i].id !== myId) ensurePc(clients[i].id);
-    }
-  }
-
-  /* ---------------- Cloudflare Realtime SFU (preferred when configured) -----
+  /* ---------------- Cloudflare Realtime SFU (required for media) ------------
    * Media is relayed through Cloudflare's SFU: we publish local tracks and
    * pull every other participant's tracks over one RTCPeerConnection.
    * The Worker proxies the Realtime HTTPS API (App Secret stays server-side);
    * MeetRoom presence carries each client's published track list.
-   * Any failure falls back to the mesh P2P path above.
+   * Media never falls back to mesh P2P: a failed relay leaves text chat active
+   * but disables camera, microphone and screen sharing.
    */
   var sfuOn = !!cfg.sfu && rtcOk;
   var sfuPc = null;
   var sfuSessionId = null;
   var sfuFailed = false;
-  var sfuSubs = {};        // "sessionId/trackName" -> true (already pulled)
-  var sfuMidMap = {};      // mid -> meet client id (for ontrack tiles)
-  var sfuSessionPeer = {}; // sfu sessionId -> meet client id
-  var sfuTag = null;       // unique track-name prefix per publish
+  var sfuSubs = {};         // "sessionId/trackName" -> true (already pulled)
+  var sfuMidMap = {};       // mid -> { clientId, source, name, color }
+  var sfuTrackPeer = {};    // "sessionId/trackName" -> remote track metadata
+  var sfuPublished = {};    // local MediaStreamTrack.id -> publish metadata
+  var sfuRemoteStreams = {}; // tile id -> combined MediaStream
 
   function sfuApi(path, method, body) {
     return fetch(prefix + '/meet/' + cfg.meetId + '/sfu' + path, {
@@ -1663,15 +1597,37 @@ export const MEET_JS = `
   }
 
   function sfuFail(err) {
-    console.warn('sfu failed, falling back to mesh', err);
+    console.warn('sfu relay failed', err);
     sfuOn = false;
     sfuFailed = true;
     if (sfuPc) {
       try { sfuPc.close(); } catch (e) { /* ignore */ }
       sfuPc = null;
     }
-    toast('Cloudflare SFU 连接失败，已回退到浏览器点对点模式');
-    syncPeers();
+    if (localStream) {
+      localStream.getTracks().forEach(function (track) { track.stop(); });
+      localStream = null;
+      audioOn = false;
+      videoOn = false;
+    }
+    if (screenStream) {
+      screenStream.getTracks().forEach(function (track) { track.stop(); });
+      screenStream = null;
+      screenOn = false;
+    }
+    ['me', 'screen-me'].forEach(function (id) {
+      if (tiles[id]) {
+        tiles[id].remove();
+        delete tiles[id];
+      }
+    });
+    sfuPublished = {};
+    btnAudio.disabled = true;
+    btnVideo.disabled = true;
+    btnScreen.disabled = true;
+    warnEl.textContent = 'Cloudflare SFU 中继连接失败。为避免点对点打洞，音视频与屏幕共享已停止；文字聊天仍可使用。';
+    warnEl.style.display = '';
+    toast('SFU 中继不可用，未建立点对点连接');
   }
 
   function sfuAddLocalTracks(stream) {
@@ -1690,11 +1646,26 @@ export const MEET_JS = `
     sfuPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }] });
     sfuPc.ontrack = function (e) {
       var mid = e.transceiver ? e.transceiver.mid : null;
-      var clientId = mid !== null ? sfuMidMap[mid] : undefined;
-      if (clientId === undefined || clientId === null) return;
-      var peer = clientById(clientId);
-      makeTile('p' + clientId, peer ? peer.name : '参会者', peer ? peer.color : '#888');
-      attachStream('p' + clientId, (e.streams && e.streams[0]) || new MediaStream([e.track]));
+      var info = mid !== null ? sfuMidMap[mid] : null;
+      if (!info) return;
+      var tileId = 'p' + info.clientId + (info.source === 'screen' ? '-screen' : '');
+      var label = info.name || '参会者';
+      if (info.source === 'screen') label += ' · 屏幕共享';
+      makeTile(tileId, label, info.color || '#888');
+      var remoteStream = sfuRemoteStreams[tileId] || new MediaStream();
+      if (!remoteStream.getTracks().some(function (track) { return track.id === e.track.id; })) {
+        remoteStream.addTrack(e.track);
+      }
+      sfuRemoteStreams[tileId] = remoteStream;
+      attachStream(tileId, remoteStream);
+      e.track.addEventListener('ended', function () {
+        if (info.source !== 'screen') return;
+        if (tiles[tileId]) {
+          tiles[tileId].remove();
+          delete tiles[tileId];
+        }
+        delete sfuRemoteStreams[tileId];
+      });
     };
     if (stream) {
       sfuAddLocalTracks(stream);
@@ -1723,50 +1694,85 @@ export const MEET_JS = `
     return sfuPc.getTransceivers().filter(function (t) { return t.sender && t.sender.track; });
   }
 
-  function sfuPublish(stream) {
+  function sfuTrackSource(track, source) {
+    if (source === 'screen') return 'screen';
+    return track.kind === 'video' ? 'camera' : 'microphone';
+  }
+
+  function announceSfuTracks() {
+    var published = Object.keys(sfuPublished).map(function (id) {
+      var meta = sfuPublished[id];
+      return {
+        sessionId: sfuSessionId,
+        trackName: meta.trackName,
+        kind: meta.kind,
+        source: meta.source
+      };
+    });
+    send({ type: 'sfu-tracks', tracks: published });
+  }
+
+  function finishSfuOffer(res) {
+    if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
+    var failedTrack = (res.tracks || []).find(function (t) { return t.errorCode; });
+    if (failedTrack) throw new Error(failedTrack.errorDescription || failedTrack.errorCode);
+    if (!res.sessionDescription) return Promise.resolve();
+    if (res.sessionDescription.type !== 'offer') return Promise.reject(new Error('unexpected SFU session description'));
+    return sfuPc.setRemoteDescription(res.sessionDescription)
+      .then(function () { return sfuPc.createAnswer(); })
+      .then(function (answer) { return sfuPc.setLocalDescription(answer); })
+      .then(function () { return iceGathered(sfuPc); })
+      .then(function () {
+        return sfuApi('/sessions/' + sfuSessionId + '/renegotiate', 'PUT', {
+          sessionDescription: { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp }
+        });
+      });
+  }
+
+  function sfuPublish(stream, source) {
     if (myId === null) return Promise.reject(new Error('not initialized'));
     var existingSession = !!sfuSessionId;
+    var newTracks = stream.getTracks().filter(function (track) { return !sfuPublished[track.id]; });
+    if (!newTracks.length) return Promise.resolve();
     return sfuEnsure(stream).then(function () {
       if (!existingSession) return;
       return sfuPc.createOffer()
         .then(function (offer) { return sfuPc.setLocalDescription(offer); })
         .then(function () { return iceGathered(sfuPc); });
     }).then(function () {
-      sfuTag = 'm' + cfg.meetId + '-c' + myId + '-' + Math.random().toString(36).slice(2, 8);
-      var tracks = localTransceivers().map(function (t) {
-        return { location: 'local', mid: t.mid, trackName: sfuTag + '-' + t.sender.track.kind };
+      var records = newTracks.map(function (track) {
+        var transceiver = localTransceivers().find(function (t) { return t.sender.track === track; });
+        var trackSource = sfuTrackSource(track, source);
+        return {
+          track: track,
+          mid: transceiver.mid,
+          trackName: 'm' + cfg.meetId + '-c' + myId + '-' + trackSource + '-' + Math.random().toString(36).slice(2, 8),
+          kind: track.kind,
+          source: trackSource
+        };
       });
-      var payload = { tracks: tracks };
+      var payload = {
+        tracks: records.map(function (record) {
+          return { location: 'local', mid: record.mid, trackName: record.trackName };
+        })
+      };
       if (existingSession) {
         payload.sessionDescription = { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp };
       }
-      return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', payload);
-    }).then(function (res) {
-      if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
-      var failedTrack = (res.tracks || []).find(function (t) { return t.errorCode; });
-      if (failedTrack) throw new Error(failedTrack.errorDescription || failedTrack.errorCode);
-      if (!res.sessionDescription) return;
-      if (res.sessionDescription.type !== 'offer') throw new Error('unexpected SFU session description');
-      return sfuPc.setRemoteDescription(res.sessionDescription)
-        .then(function () { return sfuPc.createAnswer(); })
-        .then(function (answer) { return sfuPc.setLocalDescription(answer); })
-        .then(function () { return iceGathered(sfuPc); })
+      return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', payload)
+        .then(finishSfuOffer)
         .then(function () {
-          return sfuApi('/sessions/' + sfuSessionId + '/renegotiate', 'PUT', {
-            sessionDescription: { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp }
+          records.forEach(function (record) {
+            sfuPublished[record.track.id] = record;
           });
         });
     }).then(function () {
-      // Announce the published tracks so peers can pull them.
-      var published = localTransceivers().map(function (t) {
-        return { sessionId: sfuSessionId, trackName: sfuTag + '-' + t.sender.track.kind, kind: t.sender.track.kind };
-      });
-      send({ type: 'sfu-tracks', tracks: published });
+      announceSfuTracks();
     });
   }
 
   function sfuSyncSubscriptions() {
-    if (!sfuOn || sfuFailed || !sfuSessionId) return Promise.resolve();
+    if (ended || !sfuOn || sfuFailed || !sfuSessionId) return Promise.resolve();
     var want = [];
     for (var i = 0; i < clients.length; i++) {
       var c = clients[i];
@@ -1776,7 +1782,7 @@ export const MEET_JS = `
         var key = t.sessionId + '/' + t.trackName;
         if (sfuSubs[key]) continue;
         sfuSubs[key] = true; // mark first to avoid duplicate pulls
-        sfuSessionPeer[t.sessionId] = c.id;
+        sfuTrackPeer[key] = { clientId: c.id, source: t.source, name: c.name, color: c.color };
         want.push({ location: 'remote', sessionId: t.sessionId, trackName: t.trackName });
       }
     }
@@ -1795,8 +1801,8 @@ export const MEET_JS = `
             }
             throw new Error(t.errorDescription || t.errorCode);
           }
-          var peerId = sfuSessionPeer[t.sessionId];
-          if (t.mid !== undefined && t.mid !== null && peerId !== undefined) sfuMidMap[t.mid] = peerId;
+          var info = sfuTrackPeer[key];
+          if (t.mid !== undefined && t.mid !== null && info) sfuMidMap[t.mid] = info;
         });
         if (retry) {
           setTimeout(sfuMaybeSync, 1000);
@@ -1818,7 +1824,7 @@ export const MEET_JS = `
   }
 
   function sfuMaybeSync() {
-    if (!sfuOn || sfuFailed) return;
+    if (ended || !sfuOn || sfuFailed) return;
     var any = false;
     for (var i = 0; i < clients.length; i++) {
       var c = clients[i];
@@ -1829,27 +1835,35 @@ export const MEET_JS = `
   }
 
   function removeSfuPeer(clientId) {
-    var key = 'p' + clientId;
-    if (tiles[key]) {
+    var prefixKey = 'p' + clientId;
+    Object.keys(tiles).forEach(function (key) {
+      if (key !== prefixKey && key.indexOf(prefixKey + '-') !== 0) return;
       tiles[key].remove();
       delete tiles[key];
-    }
+      delete sfuRemoteStreams[key];
+    });
+  }
+
+  function closeSfuRecords(records, keepalive) {
+    if (!sfuSessionId || !records.length) return Promise.resolve();
+    var tracks = records.map(function (record) {
+      return { location: 'local', mid: record.mid, trackName: record.trackName };
+    });
+    return fetch(prefix + '/meet/' + cfg.meetId + '/sfu/sessions/' + sfuSessionId + '/tracks/close', {
+      method: 'PUT',
+      keepalive: !!keepalive,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tracks: tracks })
+    }).then(function (response) {
+      if (!response.ok && !keepalive) throw new Error('关闭 SFU track 失败：HTTP ' + response.status);
+    });
   }
 
   function sfuClose() {
     // Best-effort cleanup of our published tracks on page unload.
     if (!sfuSessionId || !sfuPc) return;
     try {
-      var tracks = localTransceivers().map(function (t) {
-        return { location: 'local', mid: t.mid, trackName: sfuTag + '-' + t.sender.track.kind };
-      });
-      if (!tracks.length) return;
-      fetch(prefix + '/meet/' + cfg.meetId + '/sfu/sessions/' + sfuSessionId + '/tracks/close', {
-        method: 'PUT',
-        keepalive: true,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tracks: tracks })
-      });
+      closeSfuRecords(Object.keys(sfuPublished).map(function (id) { return sfuPublished[id]; }), true);
     } catch (e) { /* ignore */ }
   }
 
@@ -1860,22 +1874,27 @@ export const MEET_JS = `
   }
   function acquireMedia() {
     if (localStream) return Promise.resolve(localStream);
+    if (!sfuOn || sfuFailed) {
+      toast('Cloudflare SFU 中继不可用，未开启点对点连接');
+      return Promise.resolve(null);
+    }
     return navigator.mediaDevices.getUserMedia({ audio: true, video: true })
       .then(function (stream) {
+        if (ended) {
+          // Meeting ended while getUserMedia was pending: drop the stream.
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          return null;
+        }
         localStream = stream;
         audioOn = true;
         videoOn = true;
         makeTile('me', '我', '#4f7cff');
         attachStream('me', stream);
         pushMediaState();
-        if (sfuOn) {
-          return sfuPublish(stream)
-            .then(sfuSyncSubscriptions)
-            .catch(function (err) { sfuFail(err); })
-            .then(function () { return stream; });
-        }
-        syncPeers();
-        return stream;
+        return sfuPublish(stream, 'camera')
+          .then(sfuSyncSubscriptions)
+          .catch(function (err) { sfuFail(err); })
+          .then(function () { return sfuFailed ? null : stream; });
       })
       .catch(function (err) {
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
@@ -1906,11 +1925,139 @@ export const MEET_JS = `
       pushMediaState();
     });
   });
+
+  function setScreenState(active) {
+    screenOn = active;
+    btnScreen.textContent = active ? '🖥 停止共享' : '🖥 分享屏幕';
+  }
+
+  function stopScreenShare() {
+    if (!screenStream) return Promise.resolve();
+    var stream = screenStream;
+    screenStream = null;
+    setScreenState(false);
+    var records = stream.getTracks().map(function (track) { return sfuPublished[track.id]; }).filter(Boolean);
+    records.forEach(function (record) {
+      delete sfuPublished[record.track.id];
+      if (sfuPc) {
+        var sender = sfuPc.getSenders().find(function (item) { return item.track === record.track; });
+        if (sender) sfuPc.removeTrack(sender);
+      }
+    });
+    stream.getTracks().forEach(function (track) { track.stop(); });
+    if (tiles['screen-me']) {
+      tiles['screen-me'].remove();
+      delete tiles['screen-me'];
+    }
+    announceSfuTracks();
+    return closeSfuRecords(records, false).catch(function (err) {
+      console.warn('screen track close failed', err);
+    });
+  }
+
+  function startScreenShare() {
+    if (ended || screenStream || !sfuOn || sfuFailed) return Promise.resolve();
+    if (!navigator.mediaDevices.getDisplayMedia) {
+      toast('当前浏览器不支持屏幕共享');
+      return Promise.resolve();
+    }
+    btnScreen.disabled = true;
+    return navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      .then(function (stream) {
+        if (ended) {
+          stream.getTracks().forEach(function (track) { track.stop(); });
+          return;
+        }
+        screenStream = stream;
+        setScreenState(true);
+        makeTile('screen-me', '我 · 屏幕共享', '#7c3aed');
+        attachStream('screen-me', stream);
+        var videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) videoTrack.addEventListener('ended', function () { stopScreenShare(); });
+        return sfuPublish(stream, 'screen').then(sfuSyncSubscriptions);
+      })
+      .catch(function (err) {
+        if (screenStream) stopScreenShare();
+        if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+          toast('已取消屏幕共享');
+          return;
+        }
+        sfuFail(err);
+      })
+      .finally(function () {
+        if (!ended && !sfuFailed) btnScreen.disabled = false;
+      });
+  }
+
+  btnScreen.addEventListener('click', function () {
+    if (screenOn) stopScreenShare();
+    else startScreenShare();
+  });
   window.addEventListener('beforeunload', function () {
     sfuClose();
-    Object.keys(pcs).forEach(removePeer);
     if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
+    if (screenStream) screenStream.getTracks().forEach(function (t) { t.stop(); });
   });
+
+  /* ---------------- meeting end ---------------- */
+  // Terminal state, idempotent: entered from the owner's end-meeting request,
+  // the server 'ended' broadcast, or a WS close with code 4000. Stops all
+  // reconnection, media and peer connections; shows a static overlay (no
+  // automatic redirect).
+  function handleEnded(endedAt) {
+    if (ended) return;
+    ended = true;
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    connected = false;
+    if (ws) { try { ws.close(); } catch (e) { /* ignore */ } }
+    setStatus('offline', '会议已结束');
+    inputEl.disabled = true;
+    document.getElementById('btn-send').disabled = true;
+    btnAudio.disabled = true;
+    btnVideo.disabled = true;
+    btnScreen.disabled = true;
+    if (btnEnd) btnEnd.disabled = true;
+    if (localStream) {
+      localStream.getTracks().forEach(function (t) { t.stop(); });
+      localStream = null;
+    }
+    if (screenStream) {
+      screenStream.getTracks().forEach(function (t) { t.stop(); });
+      screenStream = null;
+    }
+    sfuClose(); // best-effort track cleanup
+    if (sfuPc) {
+      try { sfuPc.close(); } catch (e) { /* ignore */ }
+      sfuPc = null;
+    }
+    sfuOn = false;
+    var detail = document.getElementById('meet-ended-detail');
+    if (detail && endedAt) {
+      detail.textContent = '主持人已于 ' + new Date(endedAt).toLocaleString() + ' 结束本次会议，感谢参与。';
+    }
+    if (endedOverlayEl) endedOverlayEl.classList.add('show');
+  }
+  if (btnEnd) {
+    btnEnd.addEventListener('click', function () {
+      if (ended || btnEnd.disabled) return;
+      if (!window.confirm('确定要结束会议吗？所有参会者都将被断开连接。')) return;
+      btnEnd.disabled = true; // prevent double submit
+      fetch(prefix + '/meet/' + cfg.meetId + '/end', { method: 'POST' })
+        .then(function (r) {
+          return r.json().then(function (d) {
+            if (!r.ok) throw new Error(d.message || d.error || ('HTTP ' + r.status));
+            handleEnded(d.ended_at);
+          });
+        })
+        .catch(function (err) {
+          if (!ended) btnEnd.disabled = false;
+          toast('结束会议失败：' + (err && err.message ? err.message : '网络错误'));
+        });
+    });
+  }
 
   /* ---------------- networking ---------------- */
   function send(obj) {
@@ -1943,22 +2090,24 @@ export const MEET_JS = `
         clients.forEach(function (c) { now[c.id] = true; });
         Object.keys(before).forEach(function (id) {
           if (!now[id] && Number(id) !== myId) {
-            removePeer(Number(id));
             removeSfuPeer(Number(id));
           }
         });
         renderCollabs();
         if (sfuOn && !sfuFailed) sfuMaybeSync();
-        else syncPeers();
-      } else if (msg.type === 'signal') {
-        onSignal(msg.from, msg.data);
+      } else if (msg.type === 'ended') {
+        handleEnded(msg.endedAt);
       }
     };
-    ws.onclose = function () {
+    ws.onclose = function (event) {
       connected = false;
-      Object.keys(pcs).forEach(removePeer);
+      if (ended || (event && (event.code === 4000 || event.reason === 'meeting_ended'))) {
+        // Terminal close: the meeting is over, do not reconnect.
+        handleEnded();
+        return;
+      }
       setStatus('offline', '离线 · ' + Math.round(backoff / 1000) + 's 后重连');
-      setTimeout(connect, backoff);
+      reconnectTimer = setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 10000);
     };
     ws.onerror = function () { ws.close(); };

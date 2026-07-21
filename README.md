@@ -21,9 +21,10 @@ Cloudflare Workers 上，通过共享入口 Worker 暴露在
   客户端内置微型解析器，零依赖），纳入知识库目录树
 - **实时聊天**：房间制文字聊天（WebSocket），支持图片与文件附件（≤25MB，上传到 R2，
   **保存 7 天后自动删除**，按大小一次性扣费 $0.15/GB）
-- **在线会议**：会议房间（文字聊天）+ 音视频通话。媒体路径二选一，自动切换：
-  **Cloudflare Realtime SFU 中转**（配置凭证后启用，媒体经 Cloudflare 全球网络转发）
-  → 失败/未配置时回退 **浏览器 WebRTC mesh 点对点直连**（Worker 仅做信令）
+- **在线会议**：会议房间（文字聊天）+ 摄像头/麦克风 + 屏幕共享。所有媒体只经
+  **Cloudflare Realtime SFU 中转**，不建立参会者之间的 WebRTC mesh 点对点连接；
+  SFU 未配置或不可达时仅保留文字聊天。会议创建者可一键结束会议，所有参会者即时
+  断开并看到终态提示
 - **图片托管**：文档图片上传到 R2，按 $0.015/GB/月 计费，每月结算；余额不足自动清理该
   用户全部图片
 - **API Key**：在仪表盘生成，配合 [skill](skill/SKILL.md) 让 AI Agent 直接读写文档
@@ -44,8 +45,8 @@ Cloudflare Workers 上，通过共享入口 Worker 暴露在
 - `src/sheet-room.js` — `SheetRoom` Durable Object：每个表格一个实例，单元格级
   last-write-wins 协同（无 OT），原始单元格文本持久化（分块存储），标题同步到知识库
 - `src/meet-room.js` — `MeetRoom` Durable Object：每个会议一个实例，临时文字聊天
-  （内存，不持久化）+ WebRTC 信令中继（mesh 模式的 offer/answer/ICE 按 peer 转发）
-  + 媒体状态与 SFU 已发布轨道列表（presence 广播）
+  （内存，不持久化）+ 媒体状态与 SFU 已发布轨道列表（presence 广播）；不转发
+  browser-to-browser SDP/ICE 信令
 - `src/realtime.js` — Cloudflare Realtime SFU 集成：Connection API 服务端代理
   （App Secret 不下发浏览器）、track/SDP 入参校验（纯函数，可单测）
 - `src/auth.js` — PBKDF2 密码哈希、会话 cookie 工具
@@ -100,8 +101,9 @@ Cloudflare Workers 上，通过共享入口 Worker 暴露在
 | GET | `/docs/sheet/:id` | 表格编辑器页面 |
 | WS | `/docs/sheet/:id/ws` | 表格协同 WebSocket（单元格 LWW + 标题 + presence） |
 | POST | `/docs/meet/new` | 创建会议（form `name`） |
-| GET | `/docs/meet/:id` | 会议页面（音视频 + 文字聊天） |
+| GET | `/docs/meet/:id` | 会议页面（音视频 + 文字聊天）；已结束的会议返回 410 结束页 |
 | WS | `/docs/meet/:id/ws` | 会议 WebSocket（聊天 + 信令/轨道广播 + presence） |
+| POST | `/docs/meet/:id/end` | 结束会议（仅创建者；未登录 401、非创建者 403，幂等） |
 | POST | `/docs/meet/:id/sfu/session` | 创建 Realtime SFU 会话（代理，需配置 secret） |
 | POST | `/docs/meet/:id/sfu/sessions/:sid/tracks` | 发布/订阅 track（代理 tracks/new） |
 | PUT | `/docs/meet/:id/sfu/sessions/:sid/renegotiate` | SDP renegotiate 应答（代理） |
@@ -116,17 +118,32 @@ Cloudflare Workers 上，通过共享入口 Worker 暴露在
 
 ### 在线会议的技术路线
 
-会议音视频有两条媒体路径，客户端自动选择：
-
-1. **Cloudflare Realtime SFU 中转**（首选，需配置凭证）：每位参会者由浏览器经
+会议媒体只有一条路径：**Cloudflare Realtime SFU 中转**。每位参会者由浏览器经
    `RTCPeerConnection` 与 Cloudflare SFU 建连（STUN 用 `stun.cloudflare.com:3478`），
-   通过 Realtime Connection API 发布本地音视频 track、拉取其他参会者的 track。
+   通过 Realtime Connection API 发布摄像头、麦克风、屏幕共享 track，并拉取其他
+   参会者的 track。
    App Secret 只保存在 Worker 服务端，浏览器的一切 Realtime API 调用都经由本 Worker
    代理（`/meet/:id/sfu/*`，含参数校验）。“谁发布了哪些 track”通过 MeetRoom
-   presence（`sfuTracks` 字段）广播，迟加入者也能订阅。媒体流量不经过本 Worker。
-2. **浏览器 mesh P2P**（回退）：未配置 Realtime 凭证（`/meet/:id/sfu/*` 返回 503）、
-   或 SFU 建连/推流/订阅任一步骤失败时，自动回退到原有 mesh 逻辑（Worker 仅信令）。
-   回退以客户端为单位：已回退的客户端只能看到同样走 mesh 的参会者。
+   presence（`sfuTracks` 字段，含 camera/microphone/screen 来源）广播，迟加入者也能
+   订阅。媒体流量不经过本 Worker。客户端与 MeetRoom 均不实现 mesh SDP/ICE 信令；
+   SFU 未配置或连接失败时禁用媒体，绝不会退回点对点打洞。
+
+**结束会议**：只有会议创建者（`POST /meet/new` 时的登录用户）可以结束会议——页面上的
+「结束会议」按钮只对创建者渲染，服务端在 `POST /meet/:id/end` 再次校验
+`session.userId === meta.owner`。结束是幂等的：首次结束在会议 meta 上记录 `endedAt`
+（旧会议 meta 无此字段，视为未结束），向所有在线参会者广播 `{type:"ended"}` 并以
+WebSocket close code `4000` / reason `meeting_ended` 断开，随后清空在线列表、内存聊天
+记录与 SFU 轨道列表（保留 name/owner/createdAt/endedAt）。结束之后：
+
+- `GET /meet/:id` 返回 410 与专用结束页（展示会议名与结束时间），不再加载会议客户端，
+  也不更新用户仪表盘的会议历史 `lastAt`；
+- 新的 WS 握手会被 accept 后立即收到 `ended` 消息并关闭（4000），浏览器据此进入终态
+  而不是无限重连；
+- SFU 代理的新 session / tracks / renegotiate 返回 410，`tracks/close` 仍放行以便
+  参会者清理已发布的轨道；
+- 参会者客户端收到 `ended` 广播或 4000 关闭后进入幂等终态：停止重连、停止本地媒体、
+  关闭所有 RTCPeerConnection（含 SFU）、禁用输入与控制按钮，并显示「会议已结束」
+  浮层（不自动跳转）；普通网络断开仍按原有退避策略重连。
 
 **开通 SFU 的步骤**（Realtime App 需手动在控制台创建；本仓库的 CI token 没有
 Calls 权限，无法程序化创建）：
@@ -140,16 +157,16 @@ Calls 权限，无法程序化创建）：
    ```
    GitHub Actions 部署时，也可将同名值保存为仓库 Secrets；部署工作流会通过
    `wrangler secret bulk` 将其同步到 Worker。
-3. 重新部署。未设置这两个 secret 时一切照旧（mesh 模式），无需任何变更。
+3. 重新部署。未设置这两个 secret 时会议仍可文字聊天，但摄像头、麦克风和屏幕共享
+   会被禁用。
    本地开发可在 `.dev.vars`（已 gitignore）中放入同名变量调试。
 
 **计费**（由 Cloudflare 账户侧收取，与应用内余额无关）：SFU + TURN 合计
 $0.05/GB 出口流量，含 1,000 GB 免费额度；推流到 Cloudflare 不计费。
 
-此前评估的「Worker 直接做 WebRTC 媒体中转（TURN）」依然不可行：Workers /
-Durable Objects 只支持 TCP，无法收发 UDP。SFU 方案相当于把中转层托管给
-Cloudflare Realtime，效果相同且不需要自建 TURN。mesh 模式下对称 NAT 对端无法
-直连时该路视频失败（UI 会提示）。浏览器不支持 `getUserMedia`/
+此前评估的「Worker 直接做 WebRTC 媒体中转（TURN）」依然不可行：媒体中转由
+Cloudflare Realtime SFU 承担，而不是由 Worker/Durable Object 或参会者浏览器承担。
+因此参与者之间无需 NAT 打洞；SFU 本身不可达时媒体会停止，不会尝试 P2P。浏览器不支持 `getUserMedia`/
 `RTCPeerConnection` 时自动降级为仅文字聊天并明确提示。
 
 ## 部署
@@ -186,8 +203,7 @@ scripts/deploy.sh
   last-write-wins（无字符级 OT），公式在客户端求值（服务端只存原始文本）
 - 聊天：每房间保留最近 300 条消息；附件 ≤25MB、保存 7 天；非图片附件不支持在线
   预览（UI 已明确提示，仅提供下载）
-- 会议：SFU 中转需手动在控制台创建 Realtime App 并配置 secret（见上）；未配置时
-  mesh 模式无 TURN 兜底，对称 NAT 下音视频可能失败；SFU 与 mesh 混用时两种模式的
-  参会者互不可见（以客户端为单位回退）；会议聊天仅存内存（DO 重启后丢失）；
-  无会议密码/等候室
+- 会议：SFU 中转需手动在控制台创建 Realtime App 并配置 secret（见上）；不提供
+  mesh/P2P 回退，SFU 不可达时仅文字聊天；会议聊天仅存内存（DO 重启后丢失）；会议
+  结束后不可再加入（页面 410，WS 立即关闭）；无会议密码/等候室
 - 聊天/表格/会议均为「链接即权限」，没有细粒度成员管理（文档保持 owner + 分享链接模型）
