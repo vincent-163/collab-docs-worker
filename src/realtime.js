@@ -6,14 +6,26 @@
 // fetch-based client is used from src/index.js at runtime.
 
 export const REALTIME_API_BASE = "https://rtc.live.cloudflare.com/v1/apps";
-export const REALTIME_STUN = "stun:stun.cloudflare.com:3478";
+export const TURN_API_BASE = "https://rtc.live.cloudflare.com/v1/turn/keys";
 
 export function realtimeEnabled(env) {
   return !!(env.REALTIME_APP_ID && env.REALTIME_APP_SECRET);
 }
 
+export function turnEnabled(env) {
+  return !!(env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN);
+}
+
+export function mediaRelayEnabled(env) {
+  return realtimeEnabled(env) && turnEnabled(env);
+}
+
 export function realtimeUrl(appId, path) {
   return `${REALTIME_API_BASE}/${appId}${path}`;
+}
+
+export function turnUrl(keyId) {
+  return `${TURN_API_BASE}/${keyId}/credentials/generate-ice-servers`;
 }
 
 const TRACK_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -71,6 +83,21 @@ export function sanitizeSessionDescription(input) {
   return { type: input.type, sdp };
 }
 
+export function sanitizeTurnIceServers(input) {
+  if (!Array.isArray(input)) return null;
+  const out = [];
+  for (const server of input) {
+    if (!server || typeof server !== "object") continue;
+    const username = typeof server.username === "string" ? server.username : "";
+    const credential = typeof server.credential === "string" ? server.credential : "";
+    const urls = (Array.isArray(server.urls) ? server.urls : [server.urls])
+      .filter((url) => typeof url === "string")
+      .filter((url) => /^turns?:/i.test(url) && !/:53(?:\?|$)/.test(url));
+    if (username && credential && urls.length) out.push({ urls, username, credential });
+  }
+  return out.length ? out : null;
+}
+
 // Call the Realtime Connection API with the App Secret (server-side only).
 export async function realtimeRequest(env, path, { method = "GET", body } = {}, attempt = 0) {
   const res = await fetch(realtimeUrl(env.REALTIME_APP_ID, path), {
@@ -90,5 +117,18 @@ export async function realtimeRequest(env, path, { method = "GET", body } = {}, 
     return realtimeRequest(env, path, { method, body }, attempt + 1);
   }
   const data = await res.json().catch(() => ({ error: "sfu_upstream", status: res.status }));
+  return { status: res.status, data };
+}
+
+export async function turnCredentialsRequest(env, ttl = 86400) {
+  const res = await fetch(turnUrl(env.TURN_KEY_ID), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ ttl })
+  });
+  const data = await res.json().catch(() => ({ error: "turn_upstream", status: res.status }));
   return { status: res.status, data };
 }

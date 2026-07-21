@@ -28,10 +28,12 @@
     "crons": ["23 4 1 * *", "17 3 * * *"]
   },
   "vars": { "PUBLIC_PREFIX": "/docs" },
-  // Optional Cloudflare Realtime SFU credentials for meeting media relay:
+  // Cloudflare Realtime SFU and TURN credentials for forced media relay:
   //   wrangler secret put REALTIME_APP_ID
   //   wrangler secret put REALTIME_APP_SECRET
-  // When unset, meetings fall back to browser mesh P2P (see README).
+  //   wrangler secret put TURN_KEY_ID
+  //   wrangler secret put TURN_KEY_API_TOKEN
+  // When incomplete, meetings remain text-only and never use browser mesh P2P.
   "rules": [
     { "type": "Text", "globs": ["**/vendor/*", "**/skill/*", "**/formula.js"] }
   ],

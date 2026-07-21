@@ -23,7 +23,7 @@ test("meetPage exposes SFU-only screen sharing controls", () => {
   assert.ok(page.includes('id="btn-screen"'));
   assert.ok(page.includes("分享屏幕"));
   assert.ok(page.includes("不建立参会者点对点连接"));
-  assert.ok(page.includes("static/meet.js?v=9"));
+  assert.ok(page.includes("static/meet.js?v=10"));
 });
 
 test("meetPage escapes the meeting name and ships the ended overlay", () => {
@@ -62,6 +62,9 @@ test("meet client publishes screen tracks without mesh fallback", () => {
   assert.ok(MEET_JS.includes("function startScreenShare()"));
   assert.ok(MEET_JS.includes("function stopScreenShare()"));
   assert.ok(MEET_JS.includes("sfuPublish(stream, 'screen')"));
+  assert.ok(MEET_JS.includes("sfuApi('/ice', 'POST')"));
+  assert.ok(MEET_JS.includes("iceTransportPolicy: 'relay'"));
+  assert.ok(!MEET_JS.includes("stun:stun.cloudflare.com"));
   assert.ok(MEET_JS.includes("res.sessionDescription.type === 'answer'"));
   assert.ok(MEET_JS.includes("source: meta.source"));
   assert.ok(!MEET_JS.includes("已回退到浏览器点对点模式"));

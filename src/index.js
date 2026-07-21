@@ -16,7 +16,8 @@ import {
 } from "./auth.js";
 import { estimateMonthlyCents, oneTimeUploadCents } from "./billing.js";
 import {
-  realtimeEnabled, realtimeRequest, sanitizeCloseTrackRefs, sanitizeTrackRefs, sanitizeSessionDescription
+  mediaRelayEnabled, realtimeRequest, sanitizeCloseTrackRefs, sanitizeTrackRefs,
+  sanitizeSessionDescription, sanitizeTurnIceServers, turnCredentialsRequest
 } from "./realtime.js";
 import quillJs from "./vendor/quill.js";
 import quillCoreCss from "./vendor/quill.core.css";
@@ -517,14 +518,13 @@ export default {
       return meetRoom(env, meetEndMatch[1]).fetch("https://meet/end", { method: "POST" });
     }
 
-    // Cloudflare Realtime SFU proxy: the App Secret stays server-side, the
-    // browser drives sessions/tracks through these endpoints. Returns 503
-    // when Realtime credentials are not configured (client then uses mesh).
-    const sfuMatch = path.match(/^\/meet\/([A-Za-z0-9]{6,24})\/sfu\/(session|sessions\/([A-Za-z0-9-]{8,128})\/(tracks|renegotiate|tracks\/close))$/);
+    // Cloudflare Realtime SFU/TURN proxy: long-lived secrets stay server-side.
+    // Browsers receive only short-lived TURN credentials and never use mesh.
+    const sfuMatch = path.match(/^\/meet\/([A-Za-z0-9]{6,24})\/sfu\/(ice|session|sessions\/([A-Za-z0-9-]{8,128})\/(tracks|renegotiate|tracks\/close))$/);
     if (sfuMatch) {
       if (!session) return json({ error: "unauthorized" }, 401);
-      if (!realtimeEnabled(env)) {
-        return json({ error: "sfu_not_configured", message: "未配置 Cloudflare Realtime，音视频使用浏览器点对点模式" }, 503);
+      if (!mediaRelayEnabled(env)) {
+        return json({ error: "media_relay_not_configured", message: "未完整配置 Cloudflare Realtime SFU/TURN" }, 503);
       }
       const metaRes = await meetRoom(env, sfuMatch[1]).fetch("https://meet/meta");
       if (metaRes.status === 404) return json({ error: "not_found" }, 404);
@@ -538,6 +538,13 @@ export default {
       }
       // Response.json() cannot carry null-body statuses; normalize to 200.
       const sfuJson = (res) => json(res.data, [101, 204, 205, 304].includes(res.status) ? 200 : res.status);
+      if (sub === "ice" && method === "POST") {
+        const res = await turnCredentialsRequest(env);
+        if (res.status < 200 || res.status >= 300) return sfuJson(res);
+        const iceServers = sanitizeTurnIceServers(res.data?.iceServers);
+        if (!iceServers) return json({ error: "bad_turn_credentials" }, 502);
+        return json({ iceServers });
+      }
       if (sub === "session" && method === "POST") {
         const body = await request.json().catch(() => null);
         const sessionDescription = sanitizeSessionDescription(body?.sessionDescription);
@@ -608,7 +615,7 @@ export default {
       const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
       const forwarded = request.headers.get("x-forwarded-prefix");
       const wsUrl = `${wsProtocol}//${url.host}${forwarded || prefix}/meet/${id}/ws`;
-      return html(meetPage(prefix, id, meta.name, wsUrl, realtimeEnabled(env), meta.owner === session.userId));
+      return html(meetPage(prefix, id, meta.name, wsUrl, mediaRelayEnabled(env), meta.owner === session.userId));
     }
 
     // Public doc-title lookup for auto-titling document links (any logged-in user).

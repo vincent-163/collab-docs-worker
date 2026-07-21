@@ -1541,6 +1541,7 @@ export const MEET_JS = `
   var sfuTrackPeer = {};    // "sessionId/trackName" -> remote track metadata
   var sfuPublished = {};    // local MediaStreamTrack.id -> publish metadata
   var sfuRemoteStreams = {}; // tile id -> combined MediaStream
+  var sfuIceServers = null;
 
   function sfuApi(path, method, body) {
     return fetch(prefix + '/meet/' + cfg.meetId + '/sfu' + path, {
@@ -1638,13 +1639,25 @@ export const MEET_JS = `
     });
   }
 
+  function sfuGetIceServers() {
+    if (sfuIceServers) return Promise.resolve(sfuIceServers);
+    return sfuApi('/ice', 'POST').then(function (data) {
+      if (!Array.isArray(data.iceServers) || !data.iceServers.length) {
+        throw new Error('Cloudflare TURN credentials unavailable');
+      }
+      sfuIceServers = data.iceServers;
+      return sfuIceServers;
+    });
+  }
+
   function sfuEnsure(stream) {
     if (sfuSessionId) {
       sfuAddLocalTracks(stream);
       return Promise.resolve();
     }
-    sfuPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }] });
-    sfuPc.ontrack = function (e) {
+    return sfuGetIceServers().then(function (iceServers) {
+      sfuPc = new RTCPeerConnection({ iceServers: iceServers, iceTransportPolicy: 'relay' });
+      sfuPc.ontrack = function (e) {
       var mid = e.transceiver ? e.transceiver.mid : null;
       var info = mid !== null ? sfuMidMap[mid] : null;
       if (!info) return;
@@ -1666,14 +1679,15 @@ export const MEET_JS = `
         }
         delete sfuRemoteStreams[tileId];
       });
-    };
-    if (stream) {
-      sfuAddLocalTracks(stream);
-    } else {
-      sfuPc.addTransceiver('audio', { direction: 'recvonly' });
-      sfuPc.addTransceiver('video', { direction: 'recvonly' });
-    }
-    return sfuPc.createOffer().then(function (offer) {
+      };
+      if (stream) {
+        sfuAddLocalTracks(stream);
+      } else {
+        sfuPc.addTransceiver('audio', { direction: 'recvonly' });
+        sfuPc.addTransceiver('video', { direction: 'recvonly' });
+      }
+      return sfuPc.createOffer();
+    }).then(function (offer) {
       return sfuPc.setLocalDescription(offer);
     }).then(function () {
       return iceGathered(sfuPc);

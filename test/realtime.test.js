@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  REALTIME_API_BASE, realtimeEnabled, realtimeRequest, realtimeUrl, sanitizeCloseTrackRefs,
-  sanitizeTrackRefs, sanitizeSessionDescription
+  REALTIME_API_BASE, TURN_API_BASE, mediaRelayEnabled, realtimeEnabled, realtimeRequest, realtimeUrl,
+  sanitizeCloseTrackRefs, sanitizeTrackRefs, sanitizeSessionDescription, sanitizeTurnIceServers,
+  turnCredentialsRequest, turnEnabled, turnUrl
 } from "../src/realtime.js";
 
 test("realtimeEnabled requires both credentials", () => {
@@ -12,12 +13,68 @@ test("realtimeEnabled requires both credentials", () => {
   assert.equal(realtimeEnabled({ REALTIME_APP_ID: "abc", REALTIME_APP_SECRET: "xyz" }), true);
 });
 
+test("mediaRelayEnabled requires SFU and TURN credentials", () => {
+  const all = {
+    REALTIME_APP_ID: "app",
+    REALTIME_APP_SECRET: "app-secret",
+    TURN_KEY_ID: "turn",
+    TURN_KEY_API_TOKEN: "turn-secret"
+  };
+  assert.equal(turnEnabled(all), true);
+  assert.equal(mediaRelayEnabled(all), true);
+  assert.equal(mediaRelayEnabled({ REALTIME_APP_ID: "app", REALTIME_APP_SECRET: "secret" }), false);
+  assert.equal(mediaRelayEnabled({ TURN_KEY_ID: "turn", TURN_KEY_API_TOKEN: "secret" }), false);
+});
+
 test("realtimeUrl builds Connection API URLs", () => {
   assert.equal(realtimeUrl("app123", "/sessions/new"), `${REALTIME_API_BASE}/app123/sessions/new`);
   assert.equal(
     realtimeUrl("app123", "/sessions/sess456/tracks/new"),
     `${REALTIME_API_BASE}/app123/sessions/sess456/tracks/new`
   );
+});
+
+test("turnUrl builds the credential endpoint", () => {
+  assert.equal(
+    turnUrl("key123"),
+    `${TURN_API_BASE}/key123/credentials/generate-ice-servers`
+  );
+});
+
+test("sanitizeTurnIceServers keeps authenticated relays and drops STUN and port 53", () => {
+  assert.deepEqual(sanitizeTurnIceServers([
+    { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] },
+    {
+      urls: [
+        "turn:turn.cloudflare.com:3478?transport=udp",
+        "turn:turn.cloudflare.com:53?transport=udp",
+        "turns:turn.cloudflare.com:443?transport=tcp"
+      ],
+      username: "u",
+      credential: "c"
+    }
+  ]), [{
+    urls: [
+      "turn:turn.cloudflare.com:3478?transport=udp",
+      "turns:turn.cloudflare.com:443?transport=tcp"
+    ],
+    username: "u",
+    credential: "c"
+  }]);
+  assert.equal(sanitizeTurnIceServers([{ urls: "stun:stun.cloudflare.com:3478" }]), null);
+});
+
+test("turnCredentialsRequest uses the TURN bearer and requested TTL", async (t) => {
+  let request;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    request = { url, init };
+    return Response.json({ iceServers: [] });
+  });
+  const result = await turnCredentialsRequest({ TURN_KEY_ID: "kid", TURN_KEY_API_TOKEN: "token" }, 3600);
+  assert.equal(request.url, `${TURN_API_BASE}/kid/credentials/generate-ice-servers`);
+  assert.equal(request.init.headers.authorization, "Bearer token");
+  assert.deepEqual(JSON.parse(request.init.body), { ttl: 3600 });
+  assert.equal(result.status, 200);
 });
 
 test("realtimeRequest retries a session-not-ready 425 response", async (t) => {

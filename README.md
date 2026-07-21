@@ -118,11 +118,13 @@ Cloudflare Workers 上，通过共享入口 Worker 暴露在
 
 ### 在线会议的技术路线
 
-会议媒体只有一条路径：**Cloudflare Realtime SFU 中转**。每位参会者由浏览器经
-   `RTCPeerConnection` 与 Cloudflare SFU 建连（STUN 用 `stun.cloudflare.com:3478`），
+会议媒体只有一条路径：**Cloudflare Realtime SFU + TURN 中转**。每位参会者由浏览器经
+   `RTCPeerConnection` 与 Cloudflare SFU 建连；客户端使用短期 Cloudflare TURN 凭据，
+   并设置 `iceTransportPolicy: "relay"`，不会尝试 host 或 server-reflexive 直连候选，
    通过 Realtime Connection API 发布摄像头、麦克风、屏幕共享 track，并拉取其他
    参会者的 track。
-   App Secret 只保存在 Worker 服务端，浏览器的一切 Realtime API 调用都经由本 Worker
+   App Secret 和长期 TURN key 只保存在 Worker 服务端。浏览器的一切 Realtime API 调用
+   都经由本 Worker
    代理（`/meet/:id/sfu/*`，含参数校验）。“谁发布了哪些 track”通过 MeetRoom
    presence（`sfuTracks` 字段，含 camera/microphone/screen 来源）广播，迟加入者也能
    订阅。媒体流量不经过本 Worker。客户端与 MeetRoom 均不实现 mesh SDP/ICE 信令；
@@ -145,8 +147,7 @@ WebSocket close code `4000` / reason `meeting_ended` 断开，随后清空在线
   关闭所有 RTCPeerConnection（含 SFU）、禁用输入与控制按钮，并显示「会议已结束」
   浮层（不自动跳转）；普通网络断开仍按原有退避策略重连。
 
-**开通 SFU 的步骤**（Realtime App 需手动在控制台创建；本仓库的 CI token 没有
-Calls 权限，无法程序化创建）：
+**开通 SFU + TURN 的步骤**：
 
 1. 打开 [Realtime 控制台](https://dash.cloudflare.com/?to=/:account/realtime/sfu)，
    创建一个 SFU App（会得到 App ID 和 App Secret）。
@@ -154,10 +155,13 @@ Calls 权限，无法程序化创建）：
    ```bash
    npx wrangler secret put REALTIME_APP_ID
    npx wrangler secret put REALTIME_APP_SECRET
+   npx wrangler secret put TURN_KEY_ID
+   npx wrangler secret put TURN_KEY_API_TOKEN
    ```
-   GitHub Actions 部署时，也可将同名值保存为仓库 Secrets；部署工作流会通过
+   TURN key 可在 Realtime TURN 控制台或账户 API 创建。GitHub Actions 部署时，将上述
+   四个同名值保存为仓库 Secrets；部署工作流会通过
    `wrangler secret bulk` 将其同步到 Worker。
-3. 重新部署。未设置这两个 secret 时会议仍可文字聊天，但摄像头、麦克风和屏幕共享
+3. 重新部署。四个 secret 任一缺失时会议仍可文字聊天，但摄像头、麦克风和屏幕共享
    会被禁用。
    本地开发可在 `.dev.vars`（已 gitignore）中放入同名变量调试。
 

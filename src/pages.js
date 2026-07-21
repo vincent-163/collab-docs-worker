@@ -419,7 +419,7 @@ export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false, isOwne
 </div>
 <div id="toast" class="toast"></div>
 <script>window.MEET_CFG = ${JSON.stringify({ prefix, meetId, wsUrl, sfu: !!sfuEnabled, isOwner: !!isOwner })};</script>
-<script src="${prefix}/static/meet.js?v=9"></script>
+<script src="${prefix}/static/meet.js?v=10"></script>
 </body>
 </html>`;
 }
