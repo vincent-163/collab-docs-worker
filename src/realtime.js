@@ -20,6 +20,8 @@ const TRACK_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID_RE = /^[A-Za-z0-9-]{8,128}$/;
 const MID_RE = /^[A-Za-z0-9]{1,8}$/;
 const MAX_TRACKS_PER_CALL = 32;
+const MAX_READY_RETRIES = 6;
+const READY_RETRY_BASE_MS = 100;
 
 // Validate a tracks array before proxying to the Realtime API.
 // Returns a sanitized array or null.
@@ -58,7 +60,7 @@ export function sanitizeSessionDescription(input) {
 }
 
 // Call the Realtime Connection API with the App Secret (server-side only).
-export async function realtimeRequest(env, path, { method = "GET", body } = {}) {
+export async function realtimeRequest(env, path, { method = "GET", body } = {}, attempt = 0) {
   const res = await fetch(realtimeUrl(env.REALTIME_APP_ID, path), {
     method,
     headers: {
@@ -67,6 +69,14 @@ export async function realtimeRequest(env, path, { method = "GET", body } = {}) 
     },
     body: body ? JSON.stringify(body) : undefined
   });
+  if (res.status === 425 && attempt < MAX_READY_RETRIES) {
+    const retryAfter = Number.parseFloat(res.headers.get("retry-after") || "");
+    const delayMs = Number.isFinite(retryAfter)
+      ? Math.min(Math.max(retryAfter * 1000, READY_RETRY_BASE_MS), 2000)
+      : Math.min(READY_RETRY_BASE_MS * (2 ** attempt), 1600);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return realtimeRequest(env, path, { method, body }, attempt + 1);
+  }
   const data = await res.json().catch(() => ({ error: "sfu_upstream", status: res.status }));
   return { status: res.status, data };
 }

@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  REALTIME_API_BASE, realtimeEnabled, realtimeUrl, sanitizeTrackRefs, sanitizeSessionDescription
+  REALTIME_API_BASE, realtimeEnabled, realtimeRequest, realtimeUrl, sanitizeTrackRefs,
+  sanitizeSessionDescription
 } from "../src/realtime.js";
 
 test("realtimeEnabled requires both credentials", () => {
@@ -17,6 +18,30 @@ test("realtimeUrl builds Connection API URLs", () => {
     realtimeUrl("app123", "/sessions/sess456/tracks/new"),
     `${REALTIME_API_BASE}/app123/sessions/sess456/tracks/new`
   );
+});
+
+test("realtimeRequest retries a session-not-ready 425 response", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    if (calls === 1) {
+      return Response.json({ error: "session_not_ready" }, {
+        status: 425,
+        headers: { "retry-after": "0" }
+      });
+    }
+    return Response.json({ tracks: [{ trackName: "video" }] });
+  });
+
+  const result = await realtimeRequest(
+    { REALTIME_APP_ID: "app", REALTIME_APP_SECRET: "secret" },
+    "/sessions/session/tracks/new",
+    { method: "POST", body: { tracks: [] } }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data, { tracks: [{ trackName: "video" }] });
 });
 
 test("sanitizeTrackRefs accepts valid local and remote refs", () => {
