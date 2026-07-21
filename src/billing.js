@@ -26,3 +26,12 @@ export function formatDollars(cents) {
 export function estimateMonthlyCents(bytesStored) {
   return chargeCents(bytesStored * MONTH_SECONDS);
 }
+
+// Chat attachments: one-time charge per upload ($0.15 per GB, min 0.01c).
+export const UPLOAD_RATE_CENTS_PER_GB = 15;
+export const MIN_UPLOAD_CENTS = 0.01;
+
+export function oneTimeUploadCents(bytes) {
+  const cents = Math.round((bytes / GB) * UPLOAD_RATE_CENTS_PER_GB * 100) / 100;
+  return Math.max(MIN_UPLOAD_CENTS, cents);
+}

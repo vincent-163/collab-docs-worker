@@ -157,6 +157,63 @@ a { color: var(--primary); text-decoration: none; }
   .create-card { flex-direction: column; }
   .doc-toolbar { top: 0; position: static; }
 }
+
+/* ---------- chat ---------- */
+.room-name { font-size: 15px; font-weight: 600; }
+.compat-warning { background: #fff4e0; color: #b9770e; padding: 10px 18px; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+.chat-body { background: var(--bg); min-height: 100vh; display: flex; flex-direction: column; }
+.chat-main { flex: 1; display: flex; flex-direction: column; max-width: 760px; width: 100%; margin: 0 auto; padding: 16px; min-height: 0; }
+.chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px 2px; min-height: 40vh; }
+.chat-list-empty { color: var(--muted); text-align: center; margin-top: 40px; font-size: 13.5px; }
+.chat-msg { display: flex; gap: 10px; align-items: flex-start; }
+.chat-msg .avatar { flex-shrink: 0; margin-left: 0; }
+.chat-bubble { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; max-width: 78%; min-width: 0; }
+.chat-bubble.mine { background: #eef3ff; border-color: #d4e0fb; }
+.chat-meta { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; }
+.chat-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.chat-img { max-width: 260px; max-height: 200px; border-radius: 8px; display: block; margin-top: 4px; cursor: zoom-in; }
+.chat-file { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; background: #f2f5fc; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.chat-file-note { display: block; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.chat-inputbar { display: flex; gap: 8px; padding: 10px 0 4px; }
+.chat-inputbar input { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; outline: none; min-width: 0; }
+.chat-inputbar input:focus { border-color: var(--primary); }
+.chat-hint { color: var(--muted); font-size: 12px; padding: 4px 2px 12px; }
+
+/* ---------- sheet ---------- */
+.sheet-body { background: var(--bg); min-height: 100vh; display: flex; flex-direction: column; }
+.sheet-formulabar { display: flex; align-items: center; gap: 10px; padding: 8px 18px; background: var(--card); border-bottom: 1px solid var(--border); }
+.fx-ref { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--muted); width: 42px; text-align: center; flex-shrink: 0; }
+.sheet-formulabar input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; outline: none; min-width: 0; }
+.sheet-formulabar input:focus { border-color: var(--primary); }
+.sheet-main { flex: 1; overflow: auto; padding: 12px 16px 30px; min-height: 0; }
+.sheet-grid table { border-collapse: collapse; background: var(--card); }
+.sheet-grid th { border: 1px solid var(--border); background: #f7f9fd; color: var(--muted); font-size: 12px; font-weight: 600; min-width: 96px; height: 24px; padding: 0 6px; position: sticky; top: 0; z-index: 2; }
+.sheet-grid th.row-head { min-width: 42px; position: sticky; left: 0; z-index: 3; }
+.sheet-grid th.corner { position: sticky; left: 0; top: 0; z-index: 4; }
+.sheet-grid td { border: 1px solid var(--border); font-size: 13px; padding: 3px 6px; height: 24px; max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: cell; }
+.sheet-grid td.selected { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sheet-grid td.error { color: #c0392b; }
+.sheet-grid td input { width: 100%; border: none; outline: none; font-size: 13px; font-family: inherit; padding: 0; background: transparent; }
+.sheet-metabar { padding: 0 16px 14px; }
+
+/* ---------- meet ---------- */
+.meet-body { background: var(--bg); min-height: 100vh; display: flex; flex-direction: column; }
+.meet-layout { flex: 1; display: flex; min-height: 0; }
+.meet-stage { flex: 1; display: flex; flex-direction: column; padding: 16px; min-width: 0; }
+.videos { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-content: start; }
+.video-tile { background: #101826; border-radius: 12px; overflow: hidden; position: relative; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
+.video-tile video { width: 100%; height: 100%; object-fit: cover; }
+.video-tile .video-label { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+.video-tile .video-placeholder { color: #8fa0bd; font-size: 13px; }
+.meet-controls { display: flex; gap: 10px; padding-top: 14px; justify-content: center; }
+.meet-chat { width: 320px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; padding: 12px; min-height: 0; }
+.meet-chat .chat-list { padding: 4px 0; min-height: 0; }
+.meet-chat .chat-bubble { background: #f7f9fd; }
+.meet-hint { text-align: center; padding-bottom: 10px; }
+@media (max-width: 860px) {
+  .meet-layout { flex-direction: column; }
+  .meet-chat { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+}
 `;
 
 export const CLIENT_JS = `
@@ -660,9 +717,10 @@ export const DASHBOARD_JS = `
             '</span></div>';
           walk(n.id, depth + 1);
         } else {
+          var isSheet = n.type === 'sheet';
           html += '<div class="tree-row" ' + pad + '>' +
-            '<span class="tree-icon">📄</span>' +
-            '<a class="tree-name" href="' + prefix + '/d/' + n.docId + '" title="' + esc(n.name) + '">' + esc(n.name) + '</a>' +
+            '<span class="tree-icon">' + (isSheet ? '📊' : '📄') + '</span>' +
+            '<a class="tree-name" href="' + prefix + (isSheet ? '/sheet/' : '/d/') + n.docId + '" title="' + esc(n.name) + '">' + esc(n.name) + '</a>' +
             '<span class="tree-actions"><select class="tree-select act-move" data-id="' + n.id + '">' + folderOptions(n.parent) + '</select></span>' +
             '</div>';
         }
@@ -682,7 +740,28 @@ export const DASHBOARD_JS = `
       .then(function (r) { location.href = r.url; });
   }
 
+  function createSheet(parent) {
+    var title = window.prompt('表格标题（可选）', '');
+    if (title === null) return;
+    var form = new FormData();
+    form.append('title', title);
+    if (parent) form.append('parent', parent);
+    fetch(prefix + '/sheet/new', { method: 'POST', body: form, redirect: 'follow' })
+      .then(function (r) { location.href = r.url; });
+  }
+
+  function createRoom(kind) {
+    var label = kind === 'chat' ? '聊天室' : '会议';
+    var name = window.prompt(label + '名称', label);
+    if (name === null) return;
+    var form = new FormData();
+    form.append('name', name);
+    fetch(prefix + '/' + kind + '/new', { method: 'POST', body: form, redirect: 'follow' })
+      .then(function (r) { location.href = r.url; });
+  }
+
   document.getElementById('btn-new-doc').addEventListener('click', function () { createDoc(null); });
+  document.getElementById('btn-new-sheet').addEventListener('click', function () { createSheet(null); });
   document.getElementById('btn-new-folder').addEventListener('click', function () {
     var name = window.prompt('文件夹名称', '新建文件夹');
     if (!name) return;
@@ -720,6 +799,26 @@ export const DASHBOARD_JS = `
       '<div class="usage-item"><div class="usage-value">' + mb(state.bytesStored) + '</div><div class="usage-label">图片存储用量</div></div>' +
       '<div class="usage-item"><div class="usage-value">' + dollars(state.estimatedMonthlyCents) + '</div><div class="usage-label">预计月费（$0.015/GB/月）</div></div>';
 
+    var chatsEl = document.getElementById('chats');
+    if (!state.chats || !state.chats.length) {
+      chatsEl.innerHTML = '<div style="color:var(--muted);font-size:13.5px">还没有聊天室。新建后把链接分享给同事即可加入。</div>';
+    } else {
+      chatsEl.innerHTML = state.chats.map(function (c) {
+        return '<div class="apikey-row"><span>💬</span><a href="' + prefix + '/chat/' + c.id + '">' + esc(c.name || '聊天室') + '</a>' +
+          '<span style="color:var(--muted);font-size:12px;margin-left:auto">' + new Date(c.lastAt).toLocaleDateString() + '</span></div>';
+      }).join('');
+    }
+
+    var meetsEl = document.getElementById('meets');
+    if (!state.meets || !state.meets.length) {
+      meetsEl.innerHTML = '<div style="color:var(--muted);font-size:13.5px">还没有会议。新建后把链接分享给同事即可加入。</div>';
+    } else {
+      meetsEl.innerHTML = state.meets.map(function (m) {
+        return '<div class="apikey-row"><span>🎥</span><a href="' + prefix + '/meet/' + m.id + '">' + esc(m.name || '会议') + '</a>' +
+          '<span style="color:var(--muted);font-size:12px;margin-left:auto">' + new Date(m.lastAt).toLocaleDateString() + '</span></div>';
+      }).join('');
+    }
+
     var keysEl = document.getElementById('apikeys');
     if (!state.apiKeys.length) {
       keysEl.innerHTML = '<div style="color:var(--muted);font-size:13.5px">还没有 API Key。生成后可配合 Agent skill 使用。</div>';
@@ -731,6 +830,9 @@ export const DASHBOARD_JS = `
       }).join('');
     }
   }
+
+  document.getElementById('btn-new-chat').addEventListener('click', function () { createRoom('chat'); });
+  document.getElementById('btn-new-meet').addEventListener('click', function () { createRoom('meet'); });
 
   document.getElementById('btn-new-apikey').addEventListener('click', function () {
     var name = document.getElementById('apikey-name').value || 'API Key';
@@ -762,5 +864,1023 @@ export const DASHBOARD_JS = `
     });
   }
   reload();
+})();
+`;
+
+export const CHAT_JS = `
+(function () {
+  'use strict';
+  var cfg = window.CHAT_CFG;
+  var prefix = cfg.prefix;
+  var listEl = document.getElementById('chat-list');
+  var inputEl = document.getElementById('chat-input');
+  var statusEl = document.getElementById('status');
+  var collabsEl = document.getElementById('collabs');
+  var ws = null;
+  var connected = false;
+  var backoff = 1000;
+  var myId = null;
+  var clients = [];
+  var seenIds = {};
+
+  if (!window.WebSocket) {
+    document.getElementById('ws-warning').style.display = '';
+    document.getElementById('btn-send').disabled = true;
+    document.getElementById('btn-attach').disabled = true;
+    return;
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(function () { el.classList.remove('show'); }, 2200);
+  }
+  function setStatus(state, label) {
+    statusEl.className = 'status' + (state === 'offline' ? ' offline' : '');
+    statusEl.querySelector('span').textContent = label;
+  }
+  function renderCollabs() {
+    var html = '';
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i];
+      html += '<div class="avatar' + (c.id === myId ? ' me' : '') + '" style="background:' + c.color + '" title="' +
+        esc(c.name) + (c.id === myId ? '（我）' : '') + '">' + esc(c.name.slice(-2, -1)) + '</div>';
+    }
+    collabsEl.innerHTML = html;
+  }
+  function fmtTime(ts) {
+    var d = new Date(ts);
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    return hh + ':' + mm;
+  }
+  function fmtSize(bytes) {
+    if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+    if (bytes >= 1e3) return (bytes / 1e3).toFixed(0) + ' KB';
+    return bytes + ' B';
+  }
+
+  function msgNode(m) {
+    var mine = m.by && m.by.id === myId;
+    var html = '<div class="chat-msg">' +
+      '<div class="avatar" style="background:' + (m.by ? m.by.color : '#888') + '" title="' + esc(m.by ? m.by.name : '') + '">' +
+      esc(m.by ? m.by.name.slice(-2, -1) : '?') + '</div>' +
+      '<div class="chat-bubble' + (mine ? ' mine' : '') + '">' +
+      '<div class="chat-meta"><span>' + esc(m.by ? m.by.name : '匿名') + '</span><span>' + fmtTime(m.ts) + '</span></div>';
+    if (m.kind === 'image' && m.file) {
+      if (m.text) html += '<div class="chat-text">' + esc(m.text) + '</div>';
+      html += '<a href="' + esc(m.file.url) + '" target="_blank" rel="noopener">' +
+        '<img class="chat-img" src="' + esc(m.file.url) + '" alt="' + esc(m.file.name) + '" loading="lazy"></a>';
+    } else if (m.kind === 'file' && m.file) {
+      if (m.text) html += '<div class="chat-text">' + esc(m.text) + '</div>';
+      html += '<a class="chat-file" href="' + esc(m.file.url) + '" download="' + esc(m.file.name) + '">📎 ' +
+        esc(m.file.name) + '（' + fmtSize(m.file.size) + '）</a>' +
+        '<span class="chat-file-note">此文件类型不支持在线预览，请下载后查看；附件保存 7 天</span>';
+    } else {
+      html += '<div class="chat-text">' + esc(m.text || '') + '</div>';
+    }
+    html += '</div></div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    return div.firstChild;
+  }
+
+  function appendMsg(m) {
+    if (seenIds[m.id]) return;
+    seenIds[m.id] = true;
+    var empty = listEl.querySelector('.chat-list-empty');
+    if (empty) empty.remove();
+    var nearBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 120;
+    listEl.appendChild(msgNode(m));
+    if (nearBottom || (m.by && m.by.id === myId)) listEl.scrollTop = listEl.scrollHeight;
+  }
+
+  function send(obj) {
+    if (connected && ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
+
+  function sendText() {
+    var text = inputEl.value;
+    if (!text.trim()) return;
+    send({ type: 'msg', kind: 'text', text: text });
+    inputEl.value = '';
+    inputEl.focus();
+  }
+
+  document.getElementById('btn-send').addEventListener('click', sendText);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendText();
+    }
+  });
+
+  /* ---------------- attachments ---------------- */
+  var MAX_FILE_BYTES = 25 * 1024 * 1024;
+  var fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  document.getElementById('btn-attach').addEventListener('click', function () {
+    fileInput.value = '';
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', function () {
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) { toast('附件不能超过 25MB'); return; }
+    var form = new FormData();
+    form.append('file', file);
+    setStatus('offline', '上传附件中…');
+    fetch(prefix + '/chat/' + cfg.chatId + '/upload', { method: 'POST', body: form })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
+      .then(function (res) {
+        setStatus('online', '已连接');
+        if (!res.ok) { toast(res.d.message || '附件上传失败'); return; }
+        var isImage = String(res.d.contentType || '').indexOf('image/') === 0;
+        send({ type: 'msg', kind: isImage ? 'image' : 'file', file: res.d });
+        toast('附件已发送（扣费 $' + (res.d.chargedCents / 100).toFixed(4) + '）');
+      })
+      .catch(function () { setStatus('online', '已连接'); toast('附件上传失败'); });
+  });
+
+  /* ---------------- networking ---------------- */
+  function connect() {
+    setStatus('offline', '连接中…');
+    ws = new WebSocket(cfg.wsUrl);
+    ws.onopen = function () { connected = true; };
+    ws.onmessage = function (event) {
+      var msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
+      if (msg.type === 'init') {
+        myId = msg.you.id;
+        clients = msg.clients;
+        (msg.messages || []).forEach(appendMsg);
+        if (!listEl.children.length) {
+          listEl.innerHTML = '<div class="chat-list-empty">还没有消息，来说点什么吧</div>';
+        }
+        listEl.scrollTop = listEl.scrollHeight;
+        renderCollabs();
+        setStatus('online', '已连接');
+        backoff = 1000;
+      } else if (msg.type === 'msg') {
+        appendMsg(msg.msg);
+      } else if (msg.type === 'presence') {
+        clients = msg.clients;
+        renderCollabs();
+      } else if (msg.type === 'error') {
+        toast(msg.message || '出错了');
+      }
+    };
+    ws.onclose = function () {
+      connected = false;
+      setStatus('offline', '离线 · ' + Math.round(backoff / 1000) + 's 后重连');
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  connect();
+})();
+`;
+
+export const SHEET_JS = `
+(function () {
+  'use strict';
+  // window.FORMULA is installed by an inline ES-module script in the page
+  // (imports /static/formula.js); wait for DOMContentLoaded so it exists.
+  function ready(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+  ready(function () {
+    var FE = window.FORMULA;
+    if (!FE) {
+      document.getElementById('status').querySelector('span').textContent = '公式引擎加载失败，请刷新重试';
+      return;
+    }
+    var cfg = window.SHEET_CFG;
+    var ROWS = 200;
+    var COLS = 26;
+    var gridEl = document.getElementById('sheet-grid');
+    var titleInput = document.getElementById('title-input');
+    var statusEl = document.getElementById('status');
+    var collabsEl = document.getElementById('collabs');
+    var revEl = document.getElementById('rev-label');
+    var fxRef = document.getElementById('fx-ref');
+    var fxInput = document.getElementById('fx-input');
+
+    var cells = {}; // "r,c" -> raw text
+    var rev = 0;
+    var myId = null;
+    var clients = [];
+    var selected = null; // { r, c }
+    var editingTd = null;
+    var ws = null;
+    var connected = false;
+    var synced = false;
+    var backoff = 1000;
+    var tdRefs = []; // [r][c] -> td element
+
+    function toast(msg) {
+      var el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(function () { el.classList.remove('show'); }, 2200);
+    }
+    function setStatus(state, label) {
+      statusEl.className = 'status' + (state === 'offline' ? ' offline' : state === 'syncing' ? ' syncing' : '');
+      statusEl.querySelector('span').textContent = label;
+    }
+    function renderCollabs() {
+      var html = '';
+      for (var i = 0; i < clients.length; i++) {
+        var c = clients[i];
+        html += '<div class="avatar' + (c.id === myId ? ' me' : '') + '" style="background:' + c.color + '" title="' +
+          c.name + (c.id === myId ? '（我）' : '') + '">' + c.name.slice(-2, -1) + '</div>';
+      }
+      collabsEl.innerHTML = html;
+    }
+    function updateRev() {
+      revEl.textContent = '修订版本 ' + rev;
+    }
+    function key(r, c) { return r + ',' + c; }
+
+    /* ---------------- formula evaluation ---------------- */
+    function cellNumber(r, c, visiting) {
+      var raw = cells[key(r, c)];
+      if (raw === undefined || raw === '') return 0;
+      if (raw.charAt(0) === '=') {
+        var v = evaluateCell(r, c, visiting);
+        if (v.error) throw { code: v.error };
+        return typeof v.value === 'number' ? v.value : 0;
+      }
+      var n = parseFloat(raw);
+      return Number.isNaN(n) ? 0 : n;
+    }
+    function evaluateCell(r, c, visiting) {
+      var k = key(r, c);
+      if (visiting[k]) return { error: '#CYCLE!' };
+      visiting[k] = true;
+      var res = FE.evaluateFormula(cells[k], {
+        get: function (ref) {
+          var p = FE.parseCellRef(ref);
+          if (!p || p.row < 0 || p.row >= ROWS || p.col < 0 || p.col >= COLS) throw { code: '#REF!' };
+          return cellNumber(p.row, p.col, visiting);
+        },
+        range: function (a, b) {
+          var pa = FE.parseCellRef(a);
+          var pb = FE.parseCellRef(b);
+          if (!pa || !pb) throw { code: '#REF!' };
+          var nums = [];
+          var r0 = Math.min(pa.row, pb.row), r1 = Math.max(pa.row, pb.row);
+          var c0 = Math.min(pa.col, pb.col), c1 = Math.max(pa.col, pb.col);
+          if (r1 - r0 > 1000 || c1 - c0 > 100) throw { code: '#REF!' };
+          for (var rr = r0; rr <= r1; rr++) {
+            for (var cc = c0; cc <= c1; cc++) nums.push(cellNumber(rr, cc, visiting));
+          }
+          return nums;
+        }
+      });
+      delete visiting[k];
+      return res;
+    }
+    function displayValue(r, c) {
+      var raw = cells[key(r, c)];
+      if (raw === undefined) return { text: '' };
+      if (raw.charAt(0) === '=') {
+        var v = evaluateCell(r, c, {});
+        if (v.error) return { text: v.error, error: true };
+        return { text: String(Math.round(v.value * 1e10) / 1e10) };
+      }
+      return { text: raw };
+    }
+
+    /* ---------------- grid rendering ---------------- */
+    function buildGrid() {
+      var html = '<table><tr><th class="corner"></th>';
+      for (var c = 0; c < COLS; c++) html += '<th>' + FE.colName(c) + '</th>';
+      html += '</tr>';
+      for (var r = 0; r < ROWS; r++) {
+        html += '<tr><th class="row-head">' + (r + 1) + '</th>';
+        for (var c2 = 0; c2 < COLS; c2++) html += '<td data-r="' + r + '" data-c="' + c2 + '"></td>';
+        html += '</tr>';
+      }
+      html += '</table>';
+      gridEl.innerHTML = html;
+      var tds = gridEl.querySelectorAll('td');
+      for (var i = 0; i < tds.length; i++) {
+        var td = tds[i];
+        var rr = Number(td.dataset.r);
+        var cc = Number(td.dataset.c);
+        if (!tdRefs[rr]) tdRefs[rr] = [];
+        tdRefs[rr][cc] = td;
+      }
+    }
+    function renderCell(r, c) {
+      var td = tdRefs[r] && tdRefs[r][c];
+      if (!td || td === editingTd) return;
+      var v = displayValue(r, c);
+      td.textContent = v.text;
+      td.classList.toggle('error', !!v.error);
+      td.title = cells[key(r, c)] || '';
+    }
+    function renderAll() {
+      for (var r = 0; r < ROWS; r++) {
+        for (var c = 0; c < COLS; c++) {
+          if (cells[key(r, c)] !== undefined) renderCell(r, c);
+        }
+      }
+    }
+    function renderFormulas() {
+      for (var k in cells) {
+        if (cells[k].charAt(0) === '=') {
+          var parts = k.split(',');
+          renderCell(Number(parts[0]), Number(parts[1]));
+        }
+      }
+    }
+
+    /* ---------------- selection & editing ---------------- */
+    function select(r, c) {
+      if (selected) {
+        var prev = tdRefs[selected.r] && tdRefs[selected.r][selected.c];
+        if (prev) prev.classList.remove('selected');
+      }
+      selected = { r: r, c: c };
+      var td = tdRefs[r][c];
+      td.classList.add('selected');
+      fxRef.textContent = FE.colName(c) + (r + 1);
+      fxInput.value = cells[key(r, c)] || '';
+    }
+    function commitEdit(td, input) {
+      var r = Number(td.dataset.r);
+      var c = Number(td.dataset.c);
+      var value = input.value;
+      editingTd = null;
+      td.textContent = '';
+      applyLocal(r, c, value);
+    }
+    function startEdit(td, initial) {
+      if (editingTd) return;
+      var r = Number(td.dataset.r);
+      var c = Number(td.dataset.c);
+      editingTd = td;
+      td.textContent = '';
+      td.classList.remove('error');
+      var input = document.createElement('input');
+      input.value = initial !== undefined ? initial : (cells[key(r, c)] || '');
+      td.appendChild(input);
+      input.focus();
+      if (initial !== undefined) input.setSelectionRange(input.value.length, input.value.length);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitEdit(td, input);
+          select(Math.min(r + 1, ROWS - 1), c);
+        } else if (e.key === 'Escape') {
+          editingTd = null;
+          renderCell(r, c);
+        } else if (e.key === 'Tab') {
+          e.preventDefault();
+          commitEdit(td, input);
+          select(r, Math.min(c + 1, COLS - 1));
+        }
+        e.stopPropagation();
+      });
+      input.addEventListener('blur', function () {
+        if (editingTd === td) commitEdit(td, input);
+      });
+    }
+    function applyLocal(r, c, value) {
+      if (value === '') delete cells[key(r, c)];
+      else cells[key(r, c)] = value;
+      renderCell(r, c);
+      renderFormulas();
+      if (selected) fxInput.value = cells[key(selected.r, selected.c)] || '';
+      if (synced && connected) {
+        send({ type: 'cell', r: r, c: c, value: value });
+        setStatus('syncing', '同步中…');
+        setTimeout(function () { if (connected) setStatus('online', '已连接 · 实时同步'); }, 600);
+      }
+    }
+
+    gridEl.addEventListener('mousedown', function (e) {
+      var td = e.target.closest('td');
+      if (!td || td === editingTd) return;
+      select(Number(td.dataset.r), Number(td.dataset.c));
+    });
+    gridEl.addEventListener('dblclick', function (e) {
+      var td = e.target.closest('td');
+      if (td) startEdit(td);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (!selected || editingTd) return;
+      if (document.activeElement === titleInput || document.activeElement === fxInput) return;
+      var td = tdRefs[selected.r][selected.c];
+      if (e.key === 'Enter' || e.key === 'F2') {
+        e.preventDefault();
+        startEdit(td);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        applyLocal(selected.r, selected.c, '');
+      } else if (e.key === 'ArrowUp' && selected.r > 0) { e.preventDefault(); select(selected.r - 1, selected.c); }
+      else if (e.key === 'ArrowDown' && selected.r < ROWS - 1) { e.preventDefault(); select(selected.r + 1, selected.c); }
+      else if (e.key === 'ArrowLeft' && selected.c > 0) { e.preventDefault(); select(selected.r, selected.c - 1); }
+      else if (e.key === 'ArrowRight' && selected.c < COLS - 1) { e.preventDefault(); select(selected.r, selected.c + 1); }
+      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        startEdit(td, e.key);
+      }
+    });
+    fxInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && selected) {
+        e.preventDefault();
+        applyLocal(selected.r, selected.c, fxInput.value);
+      }
+    });
+
+    /* ---------------- title ---------------- */
+    var titleTimer = null;
+    titleInput.addEventListener('input', function () {
+      document.title = (titleInput.value || '未命名表格') + ' · 在线表格';
+      clearTimeout(titleTimer);
+      titleTimer = setTimeout(function () {
+        send({ type: 'title', title: titleInput.value });
+      }, 400);
+    });
+
+    /* ---------------- networking ---------------- */
+    function send(obj) {
+      if (connected && ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+    }
+    function connect() {
+      setStatus('offline', '连接中…');
+      synced = false;
+      ws = new WebSocket(cfg.wsUrl);
+      ws.onopen = function () { connected = true; };
+      ws.onmessage = function (event) {
+        var msg;
+        try { msg = JSON.parse(event.data); } catch (e) { return; }
+        if (msg.type === 'init') {
+          myId = msg.you.id;
+          clients = msg.clients;
+          cells = msg.cells || {};
+          rev = msg.rev || 0;
+          renderAll();
+          titleInput.value = msg.title || '';
+          document.title = (msg.title || '未命名表格') + ' · 在线表格';
+          renderCollabs();
+          updateRev();
+          setStatus('online', '已连接 · 实时同步');
+          synced = true;
+          backoff = 1000;
+        } else if (msg.type === 'cell') {
+          if (msg.value === '') delete cells[key(msg.r, msg.c)];
+          else cells[key(msg.r, msg.c)] = msg.value;
+          rev = msg.rev;
+          renderCell(msg.r, msg.c);
+          renderFormulas();
+          updateRev();
+          if (selected && selected.r === msg.r && selected.c === msg.c && !editingTd) {
+            fxInput.value = msg.value;
+          }
+        } else if (msg.type === 'title') {
+          if (!msg.by || msg.by.id !== myId) {
+            if (document.activeElement !== titleInput) titleInput.value = msg.title;
+            document.title = (msg.title || '未命名表格') + ' · 在线表格';
+          }
+        } else if (msg.type === 'presence') {
+          clients = msg.clients;
+          renderCollabs();
+        } else if (msg.type === 'error') {
+          toast(msg.message || '同步出错');
+        }
+      };
+      ws.onclose = function () {
+        connected = false;
+        synced = false;
+        setStatus('offline', '离线 · ' + Math.round(backoff / 1000) + 's 后重连');
+        setTimeout(connect, backoff);
+        backoff = Math.min(backoff * 2, 10000);
+      };
+      ws.onerror = function () { ws.close(); };
+    }
+
+    buildGrid();
+    select(0, 0);
+    connect();
+  });
+})();
+`;
+
+export const MEET_JS = `
+(function () {
+  'use strict';
+  var cfg = window.MEET_CFG;
+  var prefix = cfg.prefix;
+  var videosEl = document.getElementById('videos');
+  var listEl = document.getElementById('chat-list');
+  var inputEl = document.getElementById('chat-input');
+  var statusEl = document.getElementById('status');
+  var collabsEl = document.getElementById('collabs');
+  var warnEl = document.getElementById('media-warning');
+  var btnAudio = document.getElementById('btn-audio');
+  var btnVideo = document.getElementById('btn-video');
+
+  var ws = null;
+  var connected = false;
+  var backoff = 1000;
+  var myId = null;
+  var clients = [];
+  var seenIds = {};
+  var pcs = {}; // peerId -> { pc, polite, makingOffer, ignoreOffer }
+  var tiles = {}; // peerId -> tile element
+  var localStream = null;
+  var audioOn = false;
+  var videoOn = false;
+
+  var rtcOk = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
+  if (!window.WebSocket) {
+    warnEl.textContent = '当前浏览器不支持 WebSocket，无法使用会议功能，请更换现代浏览器。';
+    warnEl.style.display = '';
+    return;
+  }
+  if (!rtcOk) {
+    warnEl.textContent = '当前浏览器不支持音视频通话（缺少 getUserMedia/RTCPeerConnection），已降级为仅文字聊天。';
+    warnEl.style.display = '';
+    btnAudio.disabled = true;
+    btnVideo.disabled = true;
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(function () { el.classList.remove('show'); }, 2200);
+  }
+  function setStatus(state, label) {
+    statusEl.className = 'status' + (state === 'offline' ? ' offline' : '');
+    statusEl.querySelector('span').textContent = label;
+  }
+  function renderCollabs() {
+    var html = '';
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i];
+      html += '<div class="avatar' + (c.id === myId ? ' me' : '') + '" style="background:' + c.color + '" title="' +
+        esc(c.name) + (c.id === myId ? '（我）' : '') + '">' + esc(c.name.slice(-2, -1)) + '</div>';
+    }
+    collabsEl.innerHTML = html;
+  }
+  function clientById(id) {
+    for (var i = 0; i < clients.length; i++) if (clients[i].id === id) return clients[i];
+    return null;
+  }
+
+  /* ---------------- chat ---------------- */
+  function fmtTime(ts) {
+    var d = new Date(ts);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function appendMsg(m) {
+    if (seenIds[m.id]) return;
+    seenIds[m.id] = true;
+    var empty = listEl.querySelector('.chat-list-empty');
+    if (empty) empty.remove();
+    var div = document.createElement('div');
+    div.innerHTML = '<div class="chat-msg"><div class="chat-bubble' + (m.by && m.by.id === myId ? ' mine' : '') + '">' +
+      '<div class="chat-meta"><span>' + esc(m.by ? m.by.name : '匿名') + '</span><span>' + fmtTime(m.ts) + '</span></div>' +
+      '<div class="chat-text">' + esc(m.text || '') + '</div></div></div>';
+    listEl.appendChild(div.firstChild);
+    listEl.scrollTop = listEl.scrollHeight;
+  }
+  function sendText() {
+    var text = inputEl.value;
+    if (!text.trim()) return;
+    send({ type: 'chat', text: text });
+    inputEl.value = '';
+    inputEl.focus();
+  }
+  document.getElementById('btn-send').addEventListener('click', sendText);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendText();
+    }
+  });
+
+  /* ---------------- video tiles ---------------- */
+  function makeTile(id, label, color) {
+    if (tiles[id]) return tiles[id];
+    var tile = document.createElement('div');
+    tile.className = 'video-tile';
+    tile.innerHTML = '<div class="video-placeholder">📷 未开启视频</div>' +
+      '<div class="video-label" style="border-left:3px solid ' + (color || '#888') + '">' + esc(label) + '</div>';
+    videosEl.appendChild(tile);
+    tiles[id] = tile;
+    return tile;
+  }
+  function attachStream(id, stream) {
+    var tile = tiles[id];
+    if (!tile) return;
+    var video = tile.querySelector('video');
+    if (!video) {
+      tile.querySelector('.video-placeholder').remove();
+      video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      if (id === 'me') video.muted = true;
+      tile.insertBefore(video, tile.firstChild);
+    }
+    video.srcObject = stream;
+  }
+  function removePeer(peerId) {
+    var ctx = pcs[peerId];
+    if (ctx) {
+      try { ctx.pc.close(); } catch (e) { /* ignore */ }
+      delete pcs[peerId];
+    }
+    if (tiles[peerId]) {
+      tiles[peerId].remove();
+      delete tiles[peerId];
+    }
+  }
+
+  /* ---------------- WebRTC mesh (perfect negotiation) ---------------- */
+  function sendSignal(to, data) {
+    send({ type: 'signal', to: to, data: data });
+  }
+  function ensurePc(peerId) {
+    if (pcs[peerId]) return pcs[peerId];
+    var ctx = {
+      pc: new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }),
+      polite: myId < peerId,
+      makingOffer: false,
+      ignoreOffer: false
+    };
+    pcs[peerId] = ctx;
+    var pc = ctx.pc;
+    if (localStream) {
+      localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
+    }
+    pc.onicecandidate = function (e) {
+      if (e.candidate) sendSignal(peerId, { candidate: e.candidate });
+    };
+    pc.ontrack = function (e) {
+      var peer = clientById(peerId);
+      makeTile(peerId, peer ? peer.name : '参会者', peer ? peer.color : '#888');
+      attachStream(peerId, e.streams[0]);
+    };
+    pc.onconnectionstatechange = function () {
+      if (pc.connectionState === 'failed') {
+        // mesh link failed (likely symmetric NAT without TURN): tell the user
+        toast('与一位参会者的连接失败：对方网络可能需要 TURN 中继（本平台不支持）');
+      }
+    };
+    pc.onnegotiationneeded = function () {
+      ctx.makingOffer = true;
+      pc.setLocalDescription()
+        .then(function () { sendSignal(peerId, { description: pc.localDescription }); })
+        .catch(function () { /* ignore */ })
+        .finally(function () { ctx.makingOffer = false; });
+    };
+    return ctx;
+  }
+  function onSignal(from, data) {
+    if (!rtcOk || !data) return;
+    var ctx = ensurePc(from);
+    var pc = ctx.pc;
+    (async function () {
+      try {
+        if (data.description) {
+          var offerCollision = data.description.type === 'offer' &&
+            (ctx.makingOffer || pc.signalingState !== 'stable');
+          ctx.ignoreOffer = !ctx.polite && offerCollision;
+          if (ctx.ignoreOffer) return;
+          await pc.setRemoteDescription(data.description);
+          if (data.description.type === 'offer') {
+            await pc.setLocalDescription();
+            sendSignal(from, { description: pc.localDescription });
+          }
+        } else if (data.candidate) {
+          try {
+            await pc.addIceCandidate(data.candidate);
+          } catch (err) {
+            if (!ctx.ignoreOffer) throw err;
+          }
+        }
+      } catch (err) {
+        console.warn('signal error', err);
+      }
+    })();
+  }
+  function syncPeers() {
+    // Create connections towards everyone once we have media; peers without
+    // media create theirs when our offer arrives.
+    if (!localStream || !rtcOk) return;
+    for (var i = 0; i < clients.length; i++) {
+      if (clients[i].id !== myId) ensurePc(clients[i].id);
+    }
+  }
+
+  /* ---------------- Cloudflare Realtime SFU (preferred when configured) -----
+   * Media is relayed through Cloudflare's SFU: we publish local tracks and
+   * pull every other participant's tracks over one RTCPeerConnection.
+   * The Worker proxies the Realtime HTTPS API (App Secret stays server-side);
+   * MeetRoom presence carries each client's published track list.
+   * Any failure falls back to the mesh P2P path above.
+   */
+  var sfuOn = !!cfg.sfu && rtcOk;
+  var sfuPc = null;
+  var sfuSessionId = null;
+  var sfuFailed = false;
+  var sfuSubs = {};        // "sessionId/trackName" -> true (already pulled)
+  var sfuMidMap = {};      // mid -> meet client id (for ontrack tiles)
+  var sfuSessionPeer = {}; // sfu sessionId -> meet client id
+  var sfuTag = null;       // unique track-name prefix per publish
+
+  function sfuApi(path, method, body) {
+    return fetch(prefix + '/meet/' + cfg.meetId + '/sfu' + path, {
+      method: method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.message || d.error || ('HTTP ' + r.status));
+        return d;
+      });
+    });
+  }
+
+  function iceGathered(pc) {
+    // The Realtime HTTPS API does not trickle; send SDP with candidates.
+    if (pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise(function (resolve) {
+      var timer = setTimeout(done, 3000);
+      function done() {
+        clearTimeout(timer);
+        pc.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      }
+      function check() { if (pc.iceGatheringState === 'complete') done(); }
+      pc.addEventListener('icegatheringstatechange', check);
+    });
+  }
+
+  function sfuFail(err) {
+    console.warn('sfu failed, falling back to mesh', err);
+    sfuOn = false;
+    sfuFailed = true;
+    if (sfuPc) {
+      try { sfuPc.close(); } catch (e) { /* ignore */ }
+      sfuPc = null;
+    }
+    toast('Cloudflare SFU 连接失败，已回退到浏览器点对点模式');
+    syncPeers();
+  }
+
+  function sfuEnsure() {
+    if (sfuSessionId) return Promise.resolve();
+    return sfuApi('/session', 'POST', {}).then(function (d) {
+      sfuSessionId = d.sessionId;
+      sfuPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }] });
+      sfuPc.ontrack = function (e) {
+        var mid = e.transceiver ? e.transceiver.mid : null;
+        var clientId = mid !== null ? sfuMidMap[mid] : undefined;
+        if (clientId === undefined || clientId === null) return;
+        var peer = clientById(clientId);
+        makeTile('p' + clientId, peer ? peer.name : '参会者', peer ? peer.color : '#888');
+        attachStream('p' + clientId, (e.streams && e.streams[0]) || new MediaStream([e.track]));
+      };
+    });
+  }
+
+  function localTransceivers() {
+    return sfuPc.getTransceivers().filter(function (t) { return t.sender && t.sender.track; });
+  }
+
+  function sfuPublish(stream) {
+    if (myId === null) return Promise.reject(new Error('not initialized'));
+    return sfuEnsure().then(function () {
+      stream.getTracks().forEach(function (t) { sfuPc.addTrack(t, stream); });
+      return sfuPc.createOffer();
+    }).then(function (offer) {
+      return sfuPc.setLocalDescription(offer);
+    }).then(function () {
+      return iceGathered(sfuPc);
+    }).then(function () {
+      sfuTag = 'm' + cfg.meetId + '-c' + myId + '-' + Math.random().toString(36).slice(2, 8);
+      var tracks = localTransceivers().map(function (t) {
+        return { location: 'local', mid: t.mid, trackName: sfuTag + '-' + t.sender.track.kind };
+      });
+      return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', {
+        sessionDescription: { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp },
+        tracks: tracks
+      });
+    }).then(function (res) {
+      if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
+      return sfuPc.setRemoteDescription(res.sessionDescription);
+    }).then(function () {
+      // Announce the published tracks so peers can pull them.
+      var published = localTransceivers().map(function (t) {
+        return { sessionId: sfuSessionId, trackName: sfuTag + '-' + t.sender.track.kind, kind: t.sender.track.kind };
+      });
+      send({ type: 'sfu-tracks', tracks: published });
+    });
+  }
+
+  function sfuSyncSubscriptions() {
+    if (!sfuOn || sfuFailed || !sfuSessionId) return Promise.resolve();
+    var want = [];
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i];
+      if (c.id === myId || !c.sfuTracks) continue;
+      for (var j = 0; j < c.sfuTracks.length; j++) {
+        var t = c.sfuTracks[j];
+        var key = t.sessionId + '/' + t.trackName;
+        if (sfuSubs[key]) continue;
+        sfuSubs[key] = true; // mark first to avoid duplicate pulls
+        sfuSessionPeer[t.sessionId] = c.id;
+        want.push({ location: 'remote', sessionId: t.sessionId, trackName: t.trackName });
+      }
+    }
+    if (!want.length) return Promise.resolve();
+    return sfuApi('/sessions/' + sfuSessionId + '/tracks', 'POST', { tracks: want })
+      .then(function (res) {
+        if (res.errorCode) throw new Error(res.errorDescription || res.errorCode);
+        (res.tracks || []).forEach(function (t) {
+          var peerId = sfuSessionPeer[t.sessionId];
+          if (t.mid !== undefined && t.mid !== null && peerId !== undefined) sfuMidMap[t.mid] = peerId;
+        });
+        // Remote track pulls come back as an offer we must answer.
+        return sfuPc.setRemoteDescription(res.sessionDescription)
+          .then(function () { return sfuPc.createAnswer(); })
+          .then(function (answer) { return sfuPc.setLocalDescription(answer); })
+          .then(function () { return iceGathered(sfuPc); })
+          .then(function () {
+            return sfuApi('/sessions/' + sfuSessionId + '/renegotiate', 'PUT', {
+              sessionDescription: { type: sfuPc.localDescription.type, sdp: sfuPc.localDescription.sdp }
+            });
+          });
+      })
+      .catch(sfuFail);
+  }
+
+  function sfuMaybeSync() {
+    if (!sfuOn || sfuFailed) return;
+    var any = false;
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i];
+      if (c.id !== myId && c.sfuTracks && c.sfuTracks.length) { any = true; break; }
+    }
+    if (!any) return;
+    sfuEnsure().then(sfuSyncSubscriptions).catch(sfuFail);
+  }
+
+  function removeSfuPeer(clientId) {
+    var key = 'p' + clientId;
+    if (tiles[key]) {
+      tiles[key].remove();
+      delete tiles[key];
+    }
+  }
+
+  function sfuClose() {
+    // Best-effort cleanup of our published tracks on page unload.
+    if (!sfuSessionId || !sfuPc) return;
+    try {
+      var tracks = localTransceivers().map(function (t) {
+        return { location: 'local', mid: t.mid, trackName: sfuTag + '-' + t.sender.track.kind };
+      });
+      if (!tracks.length) return;
+      fetch(prefix + '/meet/' + cfg.meetId + '/sfu/sessions/' + sfuSessionId + '/tracks/close', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tracks: tracks })
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  function pushMediaState() {
+    send({ type: 'media', audio: audioOn, video: videoOn });
+    btnAudio.textContent = audioOn ? '🎙 关闭麦克风' : '🎙 开启麦克风';
+    btnVideo.textContent = videoOn ? '📷 关闭摄像头' : '📷 开启摄像头';
+  }
+  function acquireMedia() {
+    if (localStream) return Promise.resolve(localStream);
+    return navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+      .then(function (stream) {
+        localStream = stream;
+        audioOn = true;
+        videoOn = true;
+        makeTile('me', '我', '#4f7cff');
+        attachStream('me', stream);
+        pushMediaState();
+        if (sfuOn) {
+          return sfuPublish(stream)
+            .then(sfuSyncSubscriptions)
+            .catch(function (err) { sfuFail(err); })
+            .then(function () { return stream; });
+        }
+        syncPeers();
+        return stream;
+      })
+      .catch(function (err) {
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+          toast('音视频需要 HTTPS 或 localhost 环境');
+        } else if (err && err.name === 'NotAllowedError') {
+          toast('已拒绝摄像头/麦克风权限，请在浏览器地址栏允许后重试');
+        } else if (err && err.name === 'NotFoundError') {
+          toast('未检测到摄像头/麦克风设备');
+        } else {
+          toast('无法开启音视频：' + (err && err.name ? err.name : '未知错误'));
+        }
+        return null;
+      });
+  }
+  btnAudio.addEventListener('click', function () {
+    acquireMedia().then(function (stream) {
+      if (!stream) return;
+      audioOn = !audioOn;
+      stream.getAudioTracks().forEach(function (t) { t.enabled = audioOn; });
+      pushMediaState();
+    });
+  });
+  btnVideo.addEventListener('click', function () {
+    acquireMedia().then(function (stream) {
+      if (!stream) return;
+      videoOn = !videoOn;
+      stream.getVideoTracks().forEach(function (t) { t.enabled = videoOn; });
+      pushMediaState();
+    });
+  });
+  window.addEventListener('beforeunload', function () {
+    sfuClose();
+    Object.keys(pcs).forEach(removePeer);
+    if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
+  });
+
+  /* ---------------- networking ---------------- */
+  function send(obj) {
+    if (connected && ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
+  function connect() {
+    setStatus('offline', '连接中…');
+    ws = new WebSocket(cfg.wsUrl);
+    ws.onopen = function () { connected = true; };
+    ws.onmessage = function (event) {
+      var msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
+      if (msg.type === 'init') {
+        myId = msg.you.id;
+        clients = msg.clients;
+        (msg.messages || []).forEach(appendMsg);
+        if (!listEl.children.length) {
+          listEl.innerHTML = '<div class="chat-list-empty">会议聊天，消息不保存</div>';
+        }
+        renderCollabs();
+        setStatus('online', '已连接');
+        backoff = 1000;
+      } else if (msg.type === 'chat') {
+        appendMsg(msg.msg);
+      } else if (msg.type === 'presence') {
+        var before = {};
+        clients.forEach(function (c) { before[c.id] = true; });
+        clients = msg.clients;
+        var now = {};
+        clients.forEach(function (c) { now[c.id] = true; });
+        Object.keys(before).forEach(function (id) {
+          if (!now[id] && Number(id) !== myId) {
+            removePeer(Number(id));
+            removeSfuPeer(Number(id));
+          }
+        });
+        renderCollabs();
+        if (sfuOn && !sfuFailed) sfuMaybeSync();
+        else syncPeers();
+      } else if (msg.type === 'signal') {
+        onSignal(msg.from, msg.data);
+      }
+    };
+    ws.onclose = function () {
+      connected = false;
+      Object.keys(pcs).forEach(removePeer);
+      setStatus('offline', '离线 · ' + Math.round(backoff / 1000) + 's 后重连');
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  connect();
 })();
 `;

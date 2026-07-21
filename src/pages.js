@@ -96,7 +96,7 @@ export function dashboardPage(prefix, email) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>知识库 · 协作文档</title>
-<link rel="stylesheet" href="${prefix}/static/style.css?v=3">
+<link rel="stylesheet" href="${prefix}/static/style.css?v=4">
 </head>
 <body class="dash-body">
 <header class="topbar">
@@ -111,6 +111,7 @@ export function dashboardPage(prefix, email) {
   <aside class="dash-side">
     <div class="dash-side-actions">
       <button id="btn-new-doc" class="btn small">＋ 新建文档</button>
+      <button id="btn-new-sheet" class="btn small" title="新建表格">📊＋</button>
       <button id="btn-new-folder" class="btn secondary small" title="新建文件夹">📁＋</button>
     </div>
     <div id="tree" class="tree"><div class="tree-loading">加载中…</div></div>
@@ -119,6 +120,20 @@ export function dashboardPage(prefix, email) {
     <section class="panel">
       <h3>📊 账户与用量</h3>
       <div id="usage" class="usage-grid">加载中…</div>
+    </section>
+    <section class="panel">
+      <h3>💬 聊天室</h3>
+      <div id="chats">加载中…</div>
+      <div class="apikey-create">
+        <button id="btn-new-chat" class="btn secondary small">新建聊天室</button>
+      </div>
+    </section>
+    <section class="panel">
+      <h3>🎥 会议</h3>
+      <div id="meets">加载中…</div>
+      <div class="apikey-create">
+        <button id="btn-new-meet" class="btn secondary small">新建会议</button>
+      </div>
     </section>
     <section class="panel">
       <h3>🔑 API Keys <a class="panel-link" href="${SKILL_URL}" target="_blank" rel="noopener">Agent skill 使用指南</a></h3>
@@ -133,7 +148,7 @@ export function dashboardPage(prefix, email) {
 </div>
 <div id="toast" class="toast"></div>
 <script>window.DASH_CFG = ${JSON.stringify({ prefix })};</script>
-<script src="${prefix}/static/dashboard.js?v=3"></script>
+<script src="${prefix}/static/dashboard.js?v=4"></script>
 </body>
 </html>`;
 }
@@ -277,6 +292,125 @@ export function shareErrorPage(prefix, heading, detail) {
   <p>${escapeHtml(detail)}</p>
   <a class="btn" href="${prefix}/app">返回知识库</a>
 </section>
+</body>
+</html>`;
+}
+
+export function chatPage(prefix, chatId, name, wsUrl) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(name || "聊天室")} · 聊天</title>
+<link rel="stylesheet" href="${prefix}/static/style.css?v=4">
+</head>
+<body class="chat-body">
+<header class="topbar">
+  <a class="logo" href="${prefix}/">📝 协作<span>文档</span></a>
+  <span class="room-name">💬 ${escapeHtml(name || "聊天室")}</span>
+  <div id="status" class="status offline"><i class="dot"></i><span>连接中…</span></div>
+  <div class="spacer"></div>
+  <div id="collabs" class="collabs"></div>
+  <a class="btn secondary small" href="${prefix}/app">返回知识库</a>
+</header>
+<div id="ws-warning" class="compat-warning" style="display:none">当前浏览器不支持 WebSocket，无法使用实时聊天，请更换现代浏览器。</div>
+<main class="chat-main">
+  <div id="chat-list" class="chat-list"></div>
+  <div class="chat-inputbar">
+    <button id="btn-attach" class="btn secondary small" title="发送图片或文件（≤25MB，保存 7 天，按大小一次性扣费）">📎</button>
+    <input id="chat-input" maxlength="4000" placeholder="输入消息，回车发送" autocomplete="off">
+    <button id="btn-send" class="btn small">发送</button>
+  </div>
+  <div class="chat-hint">附件保存 7 天后自动删除；非图片文件不支持在线预览，请下载后查看。房间 ID：${escapeHtml(chatId)}</div>
+</main>
+<div id="toast" class="toast"></div>
+<script>window.CHAT_CFG = ${JSON.stringify({ prefix, chatId, wsUrl })};</script>
+<script src="${prefix}/static/chat.js?v=4"></script>
+</body>
+</html>`;
+}
+
+export function sheetPage(prefix, sheetId, title, wsUrl) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title || "未命名表格")} · 在线表格</title>
+<link rel="stylesheet" href="${prefix}/static/style.css?v=4">
+</head>
+<body class="sheet-body">
+<header class="topbar">
+  <a class="logo" href="${prefix}/">📝 协作<span>文档</span></a>
+  <input id="title-input" class="title-input" maxlength="200" value="${escapeHtml(title)}" placeholder="未命名表格">
+  <div id="status" class="status offline"><i class="dot"></i><span>连接中…</span></div>
+  <div class="spacer"></div>
+  <div id="collabs" class="collabs"></div>
+  <a class="btn secondary small" href="${prefix}/app">返回知识库</a>
+</header>
+<div class="sheet-formulabar">
+  <span id="fx-ref" class="fx-ref">A1</span>
+  <input id="fx-input" placeholder="值或公式（以 = 开头，支持 SUM/AVERAGE/MIN/MAX/COUNT 与 + - * /）" autocomplete="off" spellcheck="false">
+</div>
+<main class="sheet-main">
+  <div id="sheet-grid" class="sheet-grid"></div>
+</main>
+<div class="metabar sheet-metabar">
+  <span id="rev-label">修订版本 0</span>
+  <span>表格 ID：${escapeHtml(sheetId)}</span>
+  <span>持有链接的登录用户均可编辑</span>
+</div>
+<div id="toast" class="toast"></div>
+<script>window.SHEET_CFG = ${JSON.stringify({ prefix, sheetId, wsUrl })};</script>
+<script type="module">
+  import { evaluateFormula, colName, parseCellRef } from "${prefix}/static/formula.js";
+  window.FORMULA = { evaluateFormula, colName, parseCellRef };
+</script>
+<script src="${prefix}/static/sheet.js?v=4"></script>
+</body>
+</html>`;
+}
+
+export function meetPage(prefix, meetId, name, wsUrl, sfuEnabled = false) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(name || "会议")} · 在线会议</title>
+<link rel="stylesheet" href="${prefix}/static/style.css?v=4">
+</head>
+<body class="meet-body">
+<header class="topbar">
+  <a class="logo" href="${prefix}/">📝 协作<span>文档</span></a>
+  <span class="room-name">🎥 ${escapeHtml(name || "会议")}</span>
+  <div id="status" class="status offline"><i class="dot"></i><span>连接中…</span></div>
+  <div class="spacer"></div>
+  <div id="collabs" class="collabs"></div>
+  <a class="btn secondary small" href="${prefix}/app">返回知识库</a>
+</header>
+<div id="media-warning" class="compat-warning" style="display:none"></div>
+<div class="meet-layout">
+  <main class="meet-stage">
+    <div id="videos" class="videos"></div>
+    <div class="meet-controls">
+      <button id="btn-audio" class="btn secondary small">🎙 开启麦克风</button>
+      <button id="btn-video" class="btn secondary small">📷 开启摄像头</button>
+    </div>
+  </main>
+  <aside class="meet-chat">
+    <div id="chat-list" class="chat-list"></div>
+    <div class="chat-inputbar">
+      <input id="chat-input" maxlength="4000" placeholder="发送消息…" autocomplete="off">
+      <button id="btn-send" class="btn small">发送</button>
+    </div>
+  </aside>
+</div>
+<div class="chat-hint meet-hint">${sfuEnabled ? "音视频经 Cloudflare Realtime SFU 中转（失败时自动回退浏览器点对点直连）；会议 ID：" : "音视频通过浏览器 WebRTC 点对点直连（Worker 仅做信令中转）；会议 ID："}${escapeHtml(meetId)}</div>
+<div id="toast" class="toast"></div>
+<script>window.MEET_CFG = ${JSON.stringify({ prefix, meetId, wsUrl, sfu: !!sfuEnabled })};</script>
+<script src="${prefix}/static/meet.js?v=4"></script>
 </body>
 </html>`;
 }

@@ -33,8 +33,10 @@ export class UserRoom extends DurableObject {
     const docs = Object.values(s.docs).sort((a, b) => b.updatedAt - a.updatedAt);
     const nodes = Object.values(s.nodes).map((n) => ({
       ...n,
-      name: n.type === "doc" ? (s.docs[n.docId]?.title || "未命名文档") : n.name
+      name: n.type === "doc" || n.type === "sheet" ? (s.docs[n.docId]?.title || "未命名") : n.name
     }));
+    const chats = Object.values(s.chats || {}).sort((a, b) => b.lastAt - a.lastAt);
+    const meets = Object.values(s.meets || {}).sort((a, b) => b.lastAt - a.lastAt);
     return {
       email: s.email,
       createdAt: s.createdAt,
@@ -43,15 +45,17 @@ export class UserRoom extends DurableObject {
       imageCount: Object.keys(s.images).length,
       docs,
       nodes,
+      chats,
+      meets,
       apiKeys: s.apiKeys.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, createdAt: k.createdAt }))
     };
   }
 
-  upsertDocNode(docId, parent) {
-    const existing = Object.values(this.state.nodes).find((n) => n.type === "doc" && n.docId === docId);
+  upsertDocNode(docId, parent, kind = "doc") {
+    const existing = Object.values(this.state.nodes).find((n) => n.type === kind && n.docId === docId);
     if (existing) return existing;
     const id = randomToken(6);
-    const node = { id, type: "doc", docId, parent: parent || null };
+    const node = { id, type: kind, docId, parent: parent || null };
     this.state.nodes[id] = node;
     return node;
   }
@@ -73,6 +77,8 @@ export class UserRoom extends DurableObject {
         apiKeys: [],
         docs: {},
         nodes: {},
+        chats: {},
+        meets: {},
         images: {},
         balanceCents: SIGNUP_GIFT_CENTS,
         byteSeconds: 0,
@@ -150,16 +156,17 @@ export class UserRoom extends DurableObject {
     }
 
     if (url.pathname === "/docs" && method === "POST") {
-      const { docId, title, parent } = await request.json();
+      const { docId, title, parent, kind } = await request.json();
       const now = Date.now();
       const existing = this.state.docs[docId];
       this.state.docs[docId] = {
         id: docId,
+        kind: kind === "sheet" ? "sheet" : "doc",
         title: String(title || ""),
         createdAt: existing?.createdAt || now,
         updatedAt: now
       };
-      const node = this.upsertDocNode(docId, parent);
+      const node = this.upsertDocNode(docId, parent, kind === "sheet" ? "sheet" : "doc");
       await this.save();
       return json({ ok: true, nodeId: node.id });
     }
@@ -216,6 +223,37 @@ export class UserRoom extends DurableObject {
       delete this.state.nodes[id];
       await this.save();
       return json({ ok: true });
+    }
+
+    // Remember a chat/meeting room the user created or joined.
+    if ((url.pathname === "/chats" || url.pathname === "/meets") && method === "POST") {
+      const { roomId, name } = await request.json();
+      const key = url.pathname === "/chats" ? "chats" : "meets";
+      this.state[key] = this.state[key] || {};
+      const now = Date.now();
+      const existing = this.state[key][roomId];
+      this.state[key][roomId] = {
+        id: roomId,
+        name: String(name || "").slice(0, 60),
+        createdAt: existing?.createdAt || now,
+        lastAt: now
+      };
+      await this.save();
+      return json({ ok: true });
+    }
+
+    // One-time balance charge (chat attachments). Atomic check + deduct.
+    if (url.pathname === "/charge" && method === "POST") {
+      const { cents } = await request.json();
+      if (!Number.isFinite(cents) || cents <= 0 || cents > 100000) {
+        return json({ error: "bad_amount" }, 400);
+      }
+      if (this.state.balanceCents < cents) {
+        return json({ error: "insufficient_balance", balanceCents: this.state.balanceCents }, 402);
+      }
+      this.state.balanceCents = Math.round((this.state.balanceCents - cents) * 100) / 100;
+      await this.save();
+      return json({ ok: true, balanceCents: this.state.balanceCents });
     }
 
     if (url.pathname === "/images" && method === "POST") {

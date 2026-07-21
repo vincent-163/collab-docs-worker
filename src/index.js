@@ -1,28 +1,40 @@
 import { DocRoomV2 } from "./doc-room.js";
 import { UserRoom } from "./user-room.js";
 import { DirectoryRoom } from "./directory-room.js";
-import { STYLE_CSS, CLIENT_JS, DASHBOARD_JS } from "./static.js";
+import { ChatRoom } from "./chat-room.js";
+import { SheetRoom } from "./sheet-room.js";
+import { MeetRoom } from "./meet-room.js";
+import { STYLE_CSS, CLIENT_JS, DASHBOARD_JS, CHAT_JS, SHEET_JS, MEET_JS } from "./static.js";
 import {
-  landingPage, authPage, dashboardPage, editorPage, notFoundPage, shareErrorPage
+  landingPage, authPage, dashboardPage, editorPage, notFoundPage, shareErrorPage,
+  chatPage, sheetPage, meetPage
 } from "./pages.js";
 import { deltaToMarkdown } from "./delta-export.js";
 import {
   hashPassword, randomToken, parseCookies,
   SESSION_COOKIE, sessionCookieHeader, clearSessionCookieHeader, validEmail
 } from "./auth.js";
-import { estimateMonthlyCents } from "./billing.js";
+import { estimateMonthlyCents, oneTimeUploadCents } from "./billing.js";
+import {
+  realtimeEnabled, realtimeRequest, sanitizeTrackRefs, sanitizeSessionDescription
+} from "./realtime.js";
 import quillJs from "./vendor/quill.js";
 import quillCoreCss from "./vendor/quill.core.css";
 import quillSnowCss from "./vendor/quill.snow.css";
 import skillMd from "../skill/SKILL.md";
+import formulaJs from "./formula.js";
 
-export { DocRoomV2, UserRoom, DirectoryRoom };
+export { DocRoomV2, UserRoom, DirectoryRoom, ChatRoom, SheetRoom, MeetRoom };
 
 const ID_PATTERN = /^[A-Za-z0-9]{6,24}$/;
 const SHARE_PATTERN = /^([A-Za-z0-9]{10})([a-f0-9]{24})$/;
 const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // chat attachments
+const CHAT_FILE_TTL = 7 * 86400000; // chat attachments expire after 7 days
+const CRON_SETTLE = "23 4 1 * *";
+const CRON_CHAT_CLEANUP = "17 3 * * *";
 
 const html = (body, status = 200, headers = {}) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...headers } });
@@ -46,6 +58,9 @@ function randomId(length = 10) {
 const room = (env, id) => env.DOC_ROOMS.getByName(id);
 const userRoom = (env, userId) => env.USER_ROOMS.getByName(userId);
 const directory = (env) => env.DIRECTORY.getByName("directory");
+const chatRoom = (env, id) => env.CHAT_ROOMS.getByName(id);
+const sheetRoom = (env, id) => env.SHEET_ROOMS.getByName(id);
+const meetRoom = (env, id) => env.MEET_ROOMS.getByName(id);
 
 async function roomOr404(env, id, path, init) {
   const response = await room(env, id).fetch(`https://room${path}`, init);
@@ -164,7 +179,33 @@ async function resolveShare(env, token) {
   return { status: 200, docId, mode: data.mode };
 }
 
+// Delete chat attachments older than CHAT_FILE_TTL (daily cron). The upload
+// timestamp is embedded in the R2 key: "chat/<ts>-<rand>".
+async function cleanupChatFiles(env) {
+  const cutoff = Date.now() - CHAT_FILE_TTL;
+  let cursor;
+  let deleted = 0;
+  do {
+    const page = await env.IMAGES.list({ prefix: "chat/", cursor, limit: 1000 });
+    const stale = [];
+    for (const obj of page.objects) {
+      const ts = Number(obj.key.slice("chat/".length).split("-")[0]);
+      if (Number.isFinite(ts) && ts < cutoff) stale.push(obj.key);
+    }
+    if (stale.length) {
+      await env.IMAGES.delete(stale);
+      deleted += stale.length;
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  if (deleted) console.log(`chat cleanup: deleted ${deleted} expired files`);
+}
+
 async function scheduled(event, env, ctx) {
+  if (event.cron === CRON_CHAT_CLEANUP) {
+    ctx.waitUntil(cleanupChatFiles(env).catch((err) => console.error("chat cleanup failed", err)));
+    return;
+  }
   const { userIds } = await directory(env).fetch("https://dir/users").then((r) => r.json());
   for (const userId of userIds) {
     ctx.waitUntil((async () => {
@@ -205,6 +246,10 @@ export default {
     if (path === "/static/style.css") return staticAsset(STYLE_CSS, "text/css; charset=utf-8");
     if (path === "/static/client.js") return staticAsset(CLIENT_JS, "application/javascript; charset=utf-8");
     if (path === "/static/dashboard.js") return staticAsset(DASHBOARD_JS, "application/javascript; charset=utf-8");
+    if (path === "/static/chat.js") return staticAsset(CHAT_JS, "application/javascript; charset=utf-8");
+    if (path === "/static/sheet.js") return staticAsset(SHEET_JS, "application/javascript; charset=utf-8");
+    if (path === "/static/meet.js") return staticAsset(MEET_JS, "application/javascript; charset=utf-8");
+    if (path === "/static/formula.js") return staticAsset(formulaJs, "application/javascript; charset=utf-8");
     if (path === "/static/vendor/quill.js") return staticAsset(quillJs, "application/javascript; charset=utf-8");
     if (path === "/static/vendor/quill.core.css") return staticAsset(quillCoreCss, "text/css; charset=utf-8");
     if (path === "/static/vendor/quill.snow.css") return staticAsset(quillSnowCss, "text/css; charset=utf-8");
@@ -310,6 +355,20 @@ export default {
       return json({ url: `${prefix}/img/${session.userId}-${imageId}`, bytes: file.size }, 201);
     }
 
+    // Chat attachment file serving (unguessable keys, expire after 7 days).
+    const fileMatch = path.match(/^\/file\/chat\/([0-9]+-[a-f0-9]{16})$/);
+    if (fileMatch && method === "GET") {
+      const object = await env.IMAGES.get(`chat/${fileMatch[1]}`);
+      if (!object) return json({ error: "not_found" }, 404);
+      const headers = new Headers();
+      const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+      headers.set("content-type", contentType);
+      headers.set("cache-control", "public, max-age=604800");
+      headers.set("x-content-type-options", "nosniff");
+      if (!contentType.startsWith("image/")) headers.set("content-disposition", "attachment");
+      return new Response(object.body, { headers });
+    }
+
     // Document creation from the dashboard.
     if (path === "/new" && method === "POST") {
       if (!session) return redirect(`${prefix}/login`);
@@ -318,6 +377,200 @@ export default {
       const parent = String(form?.get("parent") || "") || null;
       const created = await createDocument(env, prefix, origin, session.userId, { title, parent });
       return redirect(created.edit_url);
+    }
+
+    // Sheet creation from the dashboard.
+    if (path === "/sheet/new" && method === "POST") {
+      if (!session) return redirect(`${prefix}/login`);
+      const form = await request.formData().catch(() => null);
+      const title = String(form?.get("title") || "");
+      const parent = String(form?.get("parent") || "") || null;
+      const id = randomId();
+      await sheetRoom(env, id).fetch("https://sheet/init", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, owner: session.userId })
+      });
+      await userRoom(env, session.userId).fetch("https://user/docs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ docId: id, title, parent, kind: "sheet" })
+      });
+      return redirect(`${prefix}/sheet/${id}`);
+    }
+
+    // Sheet editor: any logged-in user with the link may collaborate
+    // (link = unguessable id; see README for the access-control model).
+    const sheetMatch = path.match(/^\/sheet\/([A-Za-z0-9]{6,24})(\/ws)?$/);
+    if (sheetMatch) {
+      if (!session) return redirect(`${prefix}/login`);
+      const id = sheetMatch[1];
+      const metaRes = await sheetRoom(env, id).fetch("https://sheet/meta");
+      if (metaRes.status === 404) return html(notFoundPage(prefix), 404);
+      const meta = await metaRes.json();
+      if (sheetMatch[2] === "/ws") {
+        return sheetRoom(env, id).fetch("https://sheet/ws", request);
+      }
+      const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+      const forwarded = request.headers.get("x-forwarded-prefix");
+      const wsUrl = `${wsProtocol}//${url.host}${forwarded || prefix}/sheet/${id}/ws`;
+      return html(sheetPage(prefix, id, meta.title, wsUrl));
+    }
+
+    // Chat room creation from the dashboard.
+    if (path === "/chat/new" && method === "POST") {
+      if (!session) return redirect(`${prefix}/login`);
+      const form = await request.formData().catch(() => null);
+      const name = String(form?.get("name") || "聊天室");
+      const id = randomId();
+      await chatRoom(env, id).fetch("https://chat/init", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, owner: session.userId })
+      });
+      return redirect(`${prefix}/chat/${id}`);
+    }
+
+    // Chat room page + websocket: any logged-in user with the link may join.
+    const chatMatch = path.match(/^\/chat\/([A-Za-z0-9]{6,24})(\/ws)?$/);
+    if (chatMatch) {
+      if (!session) return redirect(`${prefix}/login`);
+      const id = chatMatch[1];
+      const metaRes = await chatRoom(env, id).fetch("https://chat/meta");
+      if (metaRes.status === 404) return html(notFoundPage(prefix), 404);
+      const meta = await metaRes.json();
+      if (chatMatch[2] === "/ws") {
+        return chatRoom(env, id).fetch("https://chat/ws", request);
+      }
+      // Record membership so the room shows up on the user's dashboard.
+      await userRoom(env, session.userId).fetch("https://user/chats", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roomId: id, name: meta.name })
+      });
+      const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+      const forwarded = request.headers.get("x-forwarded-prefix");
+      const wsUrl = `${wsProtocol}//${url.host}${forwarded || prefix}/chat/${id}/ws`;
+      return html(chatPage(prefix, id, meta.name, wsUrl));
+    }
+
+    // Chat attachment upload: one-time balance charge, 7-day retention.
+    const chatUploadMatch = path.match(/^\/chat\/([A-Za-z0-9]{6,24})\/upload$/);
+    if (chatUploadMatch && method === "POST") {
+      if (!session) return json({ error: "unauthorized" }, 401);
+      const metaRes = await chatRoom(env, chatUploadMatch[1]).fetch("https://chat/meta");
+      if (metaRes.status === 404) return json({ error: "not_found" }, 404);
+      const form = await request.formData().catch(() => null);
+      const file = form?.get("file");
+      if (!file || typeof file === "string") return json({ error: "missing_file" }, 400);
+      if (file.size > MAX_FILE_BYTES) return json({ error: "too_large", message: "附件不能超过 25MB" }, 400);
+      const key = `${Date.now()}-${randomToken(8)}`;
+      const contentType = file.type || "application/octet-stream";
+      await env.IMAGES.put(`chat/${key}`, file.stream(), {
+        httpMetadata: { contentType }
+      });
+      const cents = oneTimeUploadCents(file.size);
+      const charge = await userRoom(env, session.userId).fetch("https://user/charge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cents })
+      });
+      if (!charge.ok) {
+        await env.IMAGES.delete(`chat/${key}`);
+        return json({ error: "insufficient_balance", message: "余额不足，无法上传附件" }, 402);
+      }
+      return json({
+        url: `${prefix}/file/chat/${key}`,
+        name: String(file.name || "附件").slice(0, 200),
+        size: file.size,
+        contentType,
+        chargedCents: cents
+      }, 201);
+    }
+
+    // Meeting room creation from the dashboard.
+    if (path === "/meet/new" && method === "POST") {
+      if (!session) return redirect(`${prefix}/login`);
+      const form = await request.formData().catch(() => null);
+      const name = String(form?.get("name") || "会议");
+      const id = randomId();
+      await meetRoom(env, id).fetch("https://meet/init", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, owner: session.userId })
+      });
+      return redirect(`${prefix}/meet/${id}`);
+    }
+
+    // Cloudflare Realtime SFU proxy: the App Secret stays server-side, the
+    // browser drives sessions/tracks through these endpoints. Returns 503
+    // when Realtime credentials are not configured (client then uses mesh).
+    const sfuMatch = path.match(/^\/meet\/([A-Za-z0-9]{6,24})\/sfu\/(session|sessions\/([A-Za-z0-9-]{8,128})\/(tracks|renegotiate|tracks\/close))$/);
+    if (sfuMatch) {
+      if (!session) return json({ error: "unauthorized" }, 401);
+      if (!realtimeEnabled(env)) {
+        return json({ error: "sfu_not_configured", message: "未配置 Cloudflare Realtime，音视频使用浏览器点对点模式" }, 503);
+      }
+      const metaRes = await meetRoom(env, sfuMatch[1]).fetch("https://meet/meta");
+      if (metaRes.status === 404) return json({ error: "not_found" }, 404);
+      const sub = sfuMatch[2];
+      const sid = sfuMatch[3];
+      // Response.json() cannot carry null-body statuses; normalize to 200.
+      const sfuJson = (res) => json(res.data, [101, 204, 205, 304].includes(res.status) ? 200 : res.status);
+      if (sub === "session" && method === "POST") {
+        const res = await realtimeRequest(env, "/sessions/new", { method: "POST", body: {} });
+        return sfuJson(res);
+      }
+      if (sid && sub.endsWith("/tracks") && method === "POST") {
+        const body = await request.json().catch(() => null);
+        const tracks = sanitizeTrackRefs(body?.tracks);
+        if (!tracks) return json({ error: "bad_tracks" }, 400);
+        const payload = { tracks };
+        const sd = sanitizeSessionDescription(body?.sessionDescription);
+        if (sd) payload.sessionDescription = sd;
+        const res = await realtimeRequest(env, `/sessions/${sid}/tracks/new`, { method: "POST", body: payload });
+        return sfuJson(res);
+      }
+      if (sid && sub.endsWith("/renegotiate") && method === "PUT") {
+        const body = await request.json().catch(() => null);
+        const sd = sanitizeSessionDescription(body?.sessionDescription);
+        if (!sd) return json({ error: "bad_session_description" }, 400);
+        const res = await realtimeRequest(env, `/sessions/${sid}/renegotiate`, {
+          method: "PUT",
+          body: { sessionDescription: sd }
+        });
+        return sfuJson(res);
+      }
+      if (sid && sub.endsWith("/tracks/close") && method === "PUT") {
+        const body = await request.json().catch(() => null);
+        const tracks = sanitizeTrackRefs(body?.tracks);
+        if (!tracks) return json({ error: "bad_tracks" }, 400);
+        const res = await realtimeRequest(env, `/sessions/${sid}/tracks/close`, { method: "PUT", body: { tracks } });
+        return sfuJson(res);
+      }
+      return json({ error: "method_not_allowed" }, 405);
+    }
+
+    // Meeting room page + websocket: any logged-in user with the link may join.
+    const meetMatch = path.match(/^\/meet\/([A-Za-z0-9]{6,24})(\/ws)?$/);
+    if (meetMatch) {
+      if (!session) return redirect(`${prefix}/login`);
+      const id = meetMatch[1];
+      const metaRes = await meetRoom(env, id).fetch("https://meet/meta");
+      if (metaRes.status === 404) return html(notFoundPage(prefix), 404);
+      const meta = await metaRes.json();
+      if (meetMatch[2] === "/ws") {
+        return meetRoom(env, id).fetch("https://meet/ws", request);
+      }
+      await userRoom(env, session.userId).fetch("https://user/meets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roomId: id, name: meta.name })
+      });
+      const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+      const forwarded = request.headers.get("x-forwarded-prefix");
+      const wsUrl = `${wsProtocol}//${url.host}${forwarded || prefix}/meet/${id}/ws`;
+      return html(meetPage(prefix, id, meta.name, wsUrl, realtimeEnabled(env)));
     }
 
     // Public doc-title lookup for auto-titling document links (any logged-in user).

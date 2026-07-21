@@ -1,0 +1,72 @@
+// Cloudflare Realtime SFU (formerly Cloudflare Calls) integration.
+// The Worker proxies the HTTPS Connection API so the App Secret never
+// reaches browsers. Docs: https://developers.cloudflare.com/realtime/sfu/
+//
+// Only the small helpers in this file are imported by unit tests; the
+// fetch-based client is used from src/index.js at runtime.
+
+export const REALTIME_API_BASE = "https://rtc.live.cloudflare.com/v1/apps";
+export const REALTIME_STUN = "stun:stun.cloudflare.com:3478";
+
+export function realtimeEnabled(env) {
+  return !!(env.REALTIME_APP_ID && env.REALTIME_APP_SECRET);
+}
+
+export function realtimeUrl(appId, path) {
+  return `${REALTIME_API_BASE}/${appId}${path}`;
+}
+
+const TRACK_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const SESSION_ID_RE = /^[A-Za-z0-9-]{8,128}$/;
+const MID_RE = /^[A-Za-z0-9]{1,8}$/;
+const MAX_TRACKS_PER_CALL = 32;
+
+// Validate a tracks array before proxying to the Realtime API.
+// Returns a sanitized array or null.
+export function sanitizeTrackRefs(input) {
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_TRACKS_PER_CALL) return null;
+  const out = [];
+  for (const t of input) {
+    if (!t || typeof t !== "object") return null;
+    const location = t.location === "local" || t.location === "remote" ? t.location : null;
+    if (!location) return null;
+    const trackName = String(t.trackName || "");
+    if (!TRACK_NAME_RE.test(trackName)) return null;
+    const ref = { location, trackName };
+    if (location === "remote") {
+      const sessionId = String(t.sessionId || "");
+      if (!SESSION_ID_RE.test(sessionId)) return null;
+      ref.sessionId = sessionId;
+    }
+    if (t.mid !== undefined && t.mid !== null) {
+      const mid = String(t.mid);
+      if (!MID_RE.test(mid)) return null;
+      ref.mid = mid;
+    }
+    out.push(ref);
+  }
+  return out;
+}
+
+// Validate a { type, sdp } session description from the browser.
+export function sanitizeSessionDescription(input) {
+  if (!input || typeof input !== "object") return null;
+  if (input.type !== "offer" && input.type !== "answer") return null;
+  const sdp = String(input.sdp || "");
+  if (!sdp || sdp.length > 65536) return null;
+  return { type: input.type, sdp };
+}
+
+// Call the Realtime Connection API with the App Secret (server-side only).
+export async function realtimeRequest(env, path, { method = "GET", body } = {}) {
+  const res = await fetch(realtimeUrl(env.REALTIME_APP_ID, path), {
+    method,
+    headers: {
+      authorization: `Bearer ${env.REALTIME_APP_SECRET}`,
+      "content-type": "application/json"
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({ error: "sfu_upstream", status: res.status }));
+  return { status: res.status, data };
+}
